@@ -1,0 +1,100 @@
+{
+  "base_url": {
+    "description": "API Base URL",
+    "hint": "Gemini API 的基础 URL。例如: https://generativelanguage.googleapis.com 或第三方中转地址如 https://api.example.com/v1",
+    "type": "string",
+    "default": ""
+  },
+  "api_key": {
+    "description": "API Key",
+    "hint": "填入您的 Gemini API Key",
+    "type": "string",
+    "default": ""
+  },
+  "model": {
+    "description": "视频分析模型",
+    "hint": "建议：视频 < 30MB 自动走 Base64 兼容流程；若较大且选用了 gemini 模型则走 Native 上传。推荐：gemini-3-flash-preview。",
+    "type": "string",
+    "default": "gemini-3-flash-preview",
+    "options": [
+      "gemini-3-flash-preview-nothinking",
+      "gemini-3-flash-preview",
+      "gemini-3-pro-preview",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro-thinking-128",
+      "自定义模型"
+    ]
+  },
+  "custom_model": {
+    "description": "自定义模型名称",
+    "hint": "仅在上方模型选择 '自定义模型' 时生效。填写自定义的模型标识符。",
+    "type": "string",
+    "default": ""
+  },
+  "max_tokens": {
+    "description": "最大 Token 数",
+    "hint": "分析结果允许的最大生成长度。",
+    "type": "int",
+    "default": 4000
+  },
+  "default_prompt": {
+    "description": "默认提示词",
+    "hint": "当用户直接发送 /分析视频 而未跟说明文字时，使用的默认分析请求。",
+    "type": "string",
+    "default": "请详细分析这个视频的内容，包括场景、人物、动作 and 主题。"
+  },
+  "video_storage_path": {
+    "description": "视频存储目录",
+    "hint": "视频下载后的本地存储路径（相对于插件目录）。建议保持默认 'videos'。",
+    "type": "string",
+    "default": "videos"
+  },
+  "max_video_size_mb": {
+    "description": "最大视频大小 (MB)",
+    "hint": "允许处理的最大视频文件。Base64 模式下（<30MB）兼容性最好。",
+    "type": "int",
+    "default": 100
+  },
+  "timeout": {
+    "description": "API 请求超时 (秒)",
+    "hint": "调用 Gemini API 的总超时时间，视频分析较慢建议设置较大值。",
+    "type": "int",
+    "default": 300
+  },
+  "download_timeout": {
+    "description": "下载超时 (秒)",
+    "hint": "视频文件从原始链接下载到本地的超时时间。",
+    "type": "int",
+    "default": 20
+  },
+  "download_retries": {
+    "description": "下载重试次数",
+    "hint": "当视频下载失败后的重试尝试次数。",
+    "type": "int",
+    "default": 3
+  },
+  "download_retry_delay": {
+    "description": "重试等待间隔 (秒)",
+    "hint": "每次重试下载之前的等待时间。",
+    "type": "int",
+    "default": 5
+  },
+  "proxy": {
+    "description": "HTTP 代理",
+    "hint": "如果您的网络无法直连 Google 或中转服务器，请设置代理。例如: http://127.0.0.1:7890",
+    "type": "string",
+    "default": ""
+  },
+  "video_retention_days": {
+    "description": "视频保留天数",
+    "hint": "视频文件在本地存储的最长时间。超过此天数的文件将被自动清理。设置 0 或负数则禁用清理。",
+    "type": "int",
+    "default": 3
+  },
+  "cleanup_interval_hours": {
+    "description": "清理检查间隔 (小时)",
+    "hint": "插件运行后台清理任务的频率。",
+    "type": "int",
+    "default": 6
+  }
+}

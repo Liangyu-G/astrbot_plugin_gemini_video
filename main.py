@@ -866,7 +866,9 @@ class GeminiVideoPlugin(Star):
             # 定义上传任务
             async def _do_upload():
                 async with httpx.AsyncClient(**client_kwargs) as client:
-                    resp = await client.post(url, headers=headers, files=files)
+                    # 添加 purpose 字段以兼容严格的 OpenAI 接口实现
+                    data = {"purpose": "assistants"}
+                    resp = await client.post(url, headers=headers, files=files, data=data)
                     resp.raise_for_status()
                     return resp.json()
 

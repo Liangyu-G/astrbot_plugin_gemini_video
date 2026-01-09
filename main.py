@@ -504,6 +504,7 @@ class GeminiVideoPlugin(Star):
                 async with httpx.AsyncClient(**client_kwargs) as client:
                     async with client.stream('GET', url) as response:
                         response.raise_for_status()
+                        logger.info(f"[Gemini Video] 连接建立成功，开始接收数据...")
                         
                         # 初始化监控变量
                         downloaded_bytes = 0

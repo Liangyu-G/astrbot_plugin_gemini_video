@@ -72,14 +72,17 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
              if context.context and context.context.event:
                  msg_id = context.context.event.message_id
                  if msg_id and msg_id in self.plugin.video_path_cache:
-                     cached_path = self.plugin.video_path_cache[msg_id]
-                     logger.info(f"[Gemini Video] Found cached video for message {msg_id}: {cached_path}")
-                     # Use cached path instead of original URL
-                     if os.path.exists(cached_path):
-                         video_url = cached_path
+                     cached_val = self.plugin.video_path_cache[msg_id]
+                     logger.info(f"[Gemini Video] Found cached video for message {msg_id}: {cached_val}")
+                     # Use cached path/url instead of original URL
+                     if cached_val.startswith("http"):
+                         video_url = cached_val
+                         logger.info(f"[Gemini Video] Using cached URL: {video_url}")
+                     elif os.path.exists(cached_val):
+                         video_url = cached_val
                          logger.info(f"[Gemini Video] Using cached file path: {video_url}")
                      else:
-                         logger.warning(f"[Gemini Video] Cached path no longer exists: {cached_path}")
+                         logger.warning(f"[Gemini Video] Cached path no longer exists: {cached_val}")
              
              result = await self.plugin._perform_video_analysis(video_url, prompt, event=context.context.event)
              logger.info(f"[Gemini Video] _perform_video_analysis returned. Length: {len(result) if result else 0}") 
@@ -207,33 +210,16 @@ class GeminiVideoPlugin(Star):
         
         if video_comp:
             try:
-                # 1. 下载/复制视频到缓存
-                local_path = await self._download_video(video_comp, event)
-                if local_path:
+                # 1. 仅缓存视频 URL，不自动下载
+                # 获取 URL: 优先使用属性，其次使用 file 字段
+                url = getattr(video_comp, "url", None) or video_comp.file
+                if url:
                     msg_id = str(event.message_obj.message_id)
-                    self.video_path_cache[msg_id] = local_path
-                    logger.debug(f"[Gemini Video] 已缓存视频消息 {msg_id} -> {local_path}")
-                    
-                    # 2. 检查是否需要预解析 (被提及且包含视频)
-                    is_to_bot = False
-                    # 检查 At
-                    for c in event.message_obj.message:
-                        if isinstance(c, At) and c.qq == str(event.self_id):
-                            is_to_bot = True; break
-                    
-                    # 检查名字
-                    plain_text = event.message_str
-                    bot_names = ["亚托莉", "萝卜子", "ATRI", "Atri"]
-                    if not is_to_bot:
-                        for name in bot_names:
-                            if name in plain_text:
-                                is_to_bot = True; break
-                    
-                    # 仅下载缓存，不再主动预解析（节省 API 消耗）
-                    logger.debug(f"[Gemini Video] Video cached and ready for tool call: {local_path}")
-
+                    self.video_path_cache[msg_id] = url
+                    logger.debug(f"[Gemini Video] 已缓存视频消息 URL {msg_id} -> {url}")
+                
             except Exception as e:
-                logger.warning(f"[Gemini Video] 自动缓存解析视频失败: {e}")
+                logger.warning(f"[Gemini Video] 自动缓存视频 URL 失败: {e}")
 
     async def _find_video_component(self, event: AstrMessageEvent) -> Video | None:
         """从消息或引用中查找视频组件"""
@@ -245,9 +231,14 @@ class GeminiVideoPlugin(Star):
             if isinstance(comp, Reply):
                 # 尝试从缓存获取
                 if str(comp.id) in self.video_path_cache:
-                    local_path = self.video_path_cache[str(comp.id)]
-                    if os.path.exists(local_path):
-                        return Video(file=local_path, path=local_path)
+                    cached_val = self.video_path_cache[str(comp.id)]
+                    if cached_val.startswith("http"):
+                        # 是 URL，返回包含 URL 的 Video 组件
+                        logger.debug(f"[Gemini Video] 从缓存恢复视频 URL: {cached_val}")
+                        return Video(file=cached_val)
+                    elif os.path.exists(cached_val):
+                        # 是本地路径
+                        return Video(file=cached_val, path=cached_val)
                 
                 # 尝试从引用的 chain 中找
                 if comp.chain:

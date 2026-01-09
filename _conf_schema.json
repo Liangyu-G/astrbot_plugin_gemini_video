@@ -111,12 +111,24 @@
   },
   "upload_mode": {
     "description": "上传模式",
-    "hint": "base64: 使用 Base64 编码直接发送（兼容性好，限制30MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
+    "hint": "base64: 使用 Base64 编码直接发送（兼容性好，限制20MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
     "type": "string",
     "default": "base64",
     "options": [
       "base64",
       "file_api"
     ]
+  },
+  "enable_compression": {
+    "description": "开启视频自动压缩",
+    "hint": "当视频体积超过阈值时，自动调用 ffmpeg 进行压缩，显著提高上传成功率并节省流量。需要系统安装 ffmpeg。",
+    "type": "bool",
+    "default": true
+  },
+  "compression_threshold_mb": {
+    "description": "压缩触发阈值 (MB)",
+    "hint": "当视频大小(MB)超过此值时触发压缩。建议设为 20-30。",
+    "type": "int",
+    "default": 25
   }
 }

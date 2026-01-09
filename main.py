@@ -394,6 +394,18 @@ class GeminiVideoPlugin(Star):
 
             logger.info(f"[Gemini Video] Video ready at {local_path}, size: {file_size_mb:.1f}MB")
             
+            # 尝试自动压缩
+            try:
+                compressed_path = await self._compress_video_if_needed(local_path)
+                if compressed_path != local_path:
+                    logger.info(f"[Gemini Video] 使用压缩后的视频进行分析: {compressed_path}")
+                    local_path = compressed_path
+                    is_temp = True # 标记为临时文件，确保会被清理
+                    # 更新文件大小信息用于后续判断
+                    file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            except Exception as e:
+                logger.warning(f"[Gemini Video] 视频压缩失败，尝试使用原始文件: {e}")
+            
             # 第二步：根据上传模式选择分析方式
             upload_mode = self.config.get("upload_mode", "base64")
             api_config = await self._get_api_config()
@@ -1165,3 +1177,65 @@ class GeminiVideoPlugin(Star):
             "api_key": api_key,
             "model": model,
         }
+
+    async def _compress_video_if_needed(self, input_path: str) -> str:
+        """如果视频超过阈值，调用 ffmpeg 进行压缩"""
+        if not self.config.get("enable_compression", True):
+            return input_path
+            
+        threshold_mb = self.config.get("compression_threshold_mb", 25)
+        file_size_mb = os.path.getsize(input_path) / (1024 * 1024)
+        
+        if file_size_mb <= threshold_mb:
+            return input_path
+            
+        # 检查 ffmpeg 是否可用
+        if not shutil.which("ffmpeg"):
+            logger.warning("[Gemini Video] 未找到 ffmpeg，跳过压缩。建议安装 ffmpeg 以优化大文件上传。")
+            return input_path
+            
+        logger.info(f"[Gemini Video] 视频大小 ({file_size_mb:.1f} MB) 超过阈值 ({threshold_mb} MB)，开始压缩...")
+        
+        # 构造输出文件名
+        input_file = Path(input_path)
+        output_file = input_file.parent / f"{input_file.stem}_compressed.mp4"
+        
+        try:
+            # 压缩参数: 720p, crf 28 (较高压缩率), ultrafast (速度优先)
+            # scale=-2:720 保证高度720，宽度保持比例且为2的倍数
+            cmd = [
+                "ffmpeg", "-y", 
+                "-i", input_path,
+                "-vf", "scale=-2:720", 
+                "-c:v", "libx264", 
+                "-preset", "ultrafast", 
+                "-crf", "28",
+                str(output_file)
+            ]
+            
+            logger.info(f"[Gemini Video] FFmpeg command: {' '.join(cmd)}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # 等待压缩完成
+            _, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"[Gemini Video] FFmpeg compression failed: {stderr.decode()}")
+                return input_path
+            
+            new_size_mb = os.path.getsize(output_file) / (1024 * 1024)
+            logger.info(f"[Gemini Video] 压缩完成: {file_size_mb:.1f} MB -> {new_size_mb:.1f} MB")
+            
+            return str(output_file)
+            
+        except Exception as e:
+            logger.error(f"[Gemini Video] Error during compression: {e}")
+            if output_file.exists():
+                try: output_file.unlink()
+                except: pass
+            return input_path

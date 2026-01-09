@@ -533,21 +533,23 @@ class GeminiVideoPlugin(Star):
                 return target_path
                 
             except (httpx.TimeoutException, httpx.NetworkError) as e:
-                logger.warning(f"[Gemini Video] 下载失败 (第 {i+1} 次): {e}")
+                logger.warning(f"[Gemini Video] 下载网络错误 (第 {i+1} 次) [{type(e).__name__}]: {e}")
                 # 清理可能存在的不完整文件
                 if os.path.exists(target_path):
                     try:
                         os.remove(target_path)
+                        logger.debug(f"[Gemini Video] 已清理不完整文件: {target_path}")
                     except:
                         pass
                 if i == actual_max_retries - 1:
                     raise e
             except Exception as e:
-                logger.warning(f"[Gemini Video] 下载遇到错误 (第 {i+1} 次): {e}")
+                logger.warning(f"[Gemini Video] 下载遇到异常 (第 {i+1} 次) [{type(e).__name__}]: {e}")
                 # 清理可能存在的不完整文件
                 if os.path.exists(target_path):
                     try:
                         os.remove(target_path)
+                        logger.debug(f"[Gemini Video] 已清理不完整文件: {target_path}")
                     except:
                         pass
                 if i == actual_max_retries - 1:

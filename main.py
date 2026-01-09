@@ -110,8 +110,14 @@ class GeminiVideoPlugin(Star):
         # 加载配置
         logger.info(f"[Gemini Video] 配置加载完成: {self.config}")
         
-        # 缓存与同步
-        self.video_analysis_cache: dict[str, str] = {} # msg_id/file_path -> analysis
+        # 视频缓存: Map[LocalPath, AnalysisResult]
+        self.video_analysis_cache: dict[str, str] = {}
+        
+        # 并发控制：正在下载的 URL 集合
+        self._downloading_urls = set()
+        
+        # 视频路径缓存: Map[MessageID, LocalPath]
+        self.video_path_cache: dict[str, str] = {}
         self.analysis_lock = asyncio.Lock()
 
         # 创建视频存储目录
@@ -179,8 +185,8 @@ class GeminiVideoPlugin(Star):
                         item.unlink()
                         count += 1
                         # 同时也从内存缓存中移除 (如果存在)
-                        keys_to_del = [k for k, v in self.video_cache.items() if v == str(item)]
-                        for k in keys_to_del: self.video_cache.pop(k, None)
+                        keys_to_del = [k for k, v in self.video_path_cache.items() if v == str(item)]
+                        for k in keys_to_del: self.video_path_cache.pop(k, None)
                     except Exception as e:
                         logger.warning(f"[Gemini Video] 无法删除过期文件 {item}: {e}")
         
@@ -205,7 +211,7 @@ class GeminiVideoPlugin(Star):
                 local_path = await self._download_video(video_comp, event)
                 if local_path:
                     msg_id = str(event.message_obj.message_id)
-                    self.video_cache[msg_id] = local_path
+                    self.video_path_cache[msg_id] = local_path
                     logger.debug(f"[Gemini Video] 已缓存视频消息 {msg_id} -> {local_path}")
                     
                     # 2. 检查是否需要预解析 (被提及且包含视频)
@@ -238,8 +244,8 @@ class GeminiVideoPlugin(Star):
         for comp in event.message_obj.message:
             if isinstance(comp, Reply):
                 # 尝试从缓存获取
-                if str(comp.id) in self.video_cache:
-                    local_path = self.video_cache[str(comp.id)]
+                if str(comp.id) in self.video_path_cache:
+                    local_path = self.video_path_cache[str(comp.id)]
                     if os.path.exists(local_path):
                         return Video(file=local_path, path=local_path)
                 
@@ -469,8 +475,29 @@ class GeminiVideoPlugin(Star):
 
 
     async def _download_from_url_with_retry(self, url: str, target_path: str, max_retries: int | None = None) -> str:
-        """从 URL 下载文件，支持重试、超时控制和下载速度监控"""
-        # 实际连接质量由下方的下载速度监控负责
+        """从 URL 下载文件，支持重试、超时控制和下载速度监控。包含此 URL 的并发锁。"""
+        
+        # 检查是否已有相同 URL 正在下载
+        if url in self._downloading_urls:
+            logger.info(f"[Gemini Video] URL 正在下载中，等待合并请求: {url}")
+            # 简单的自旋等待，直到它从集合中移除
+            for _ in range(60): # 最多等 60 秒
+                if url not in self._downloading_urls:
+                    # 下载完成（假定成功），直接返回
+                    if os.path.exists(target_path):
+                         logger.info(f"[Gemini Video] 检测到并发下载已完成，直接复用: {target_path}")
+                         return target_path
+                    break # 如果不存在，说明之前的失败了，重新下载
+                await asyncio.sleep(1)
+        
+        self._downloading_urls.add(url)
+        try:
+            return await self._internal_download_from_url(url, target_path, max_retries)
+        finally:
+            self._downloading_urls.discard(url)
+
+    async def _internal_download_from_url(self, url: str, target_path: str, max_retries: int | None = None) -> str:
+        """实际执行下载逻辑的内部函数"""
         # 默认 300秒，作为最后的安全底线防止死锁
         safe_read_timeout = self.config.get("download_stream_timeout", 300)
         actual_max_retries = max_retries if max_retries is not None else self.config.get("download_retries", 3)
@@ -522,20 +549,22 @@ class GeminiVideoPlugin(Star):
                                 f.write(chunk)
                                 downloaded_bytes += len(chunk)
                                 
-                                # 检查下载状态
+                                # 检查下载速度/停滞
                                 current_time = time.time()
                                 elapsed = current_time - last_check_time
                                 
                                 if elapsed >= stall_check_interval:
-                                    # 计算这段时间的数据增量
+                                    # 计算这段时间的平均速度
                                     bytes_since_last_check = downloaded_bytes - last_check_bytes
                                     speed_kb_per_sec = (bytes_since_last_check / 1024) / elapsed
                                     
                                     logger.info(f"[Gemini Video] 下载进度: {downloaded_bytes / 1024 / 1024:.2f} MB (速度: {speed_kb_per_sec:.2f} KB/s)")
                                     
-                                    # 仅当这段时间内没有任何数据增长时，才判定为停滞
-                                    if bytes_since_last_check <= 0:
-                                        raise Exception(f"下载停滞，在 {elapsed:.1f} 秒内未接收到任何数据")
+                                    # 停滞检测：如果这段时间内没有任何数据写入（且不是还没开始）
+                                    if bytes_since_last_check == 0:
+                                         raise Exception(
+                                            f"下载停滞: 在 {elapsed:.1f} 秒内未接收到任何数据"
+                                        )
                                     
                                     # 更新检查点
                                     last_check_time = current_time

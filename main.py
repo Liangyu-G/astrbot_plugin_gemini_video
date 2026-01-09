@@ -335,57 +335,33 @@ class GeminiVideoPlugin(Star):
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     async def _perform_video_analysis(self, video_url: str, prompt: str | None = None, event: AstrMessageEvent = None) -> str:
-        """执行视频分析的核心逻辑"""
+        """执行视频分析的核心逻辑：先下载，再根据模式选择上传方式"""
         logger.info(f"[Gemini Video] _perform_video_analysis entered with URL: {video_url}")
         try:
-            # 检查是否启用 URL 直接分析
-            use_url_analysis = self.config.get("use_url_analysis", True)
-            
-            # 如果是远程 URL 且启用了直接分析，则跳过下载
-            if use_url_analysis and (video_url.startswith("http://") or video_url.startswith("https://")):
-                logger.info(f"[Gemini Video] Using direct URL analysis for: {video_url}")
-                try:
-                    gemini_analysis_result = ""
-                    async for chunk in self._call_gemini_api_stream(video_url, prompt or "Describe this video."):
-                        gemini_analysis_result += chunk
-                    
-                    if not gemini_analysis_result:
-                        logger.warning("[Gemini Video] URL analysis returned empty result")
-                        # Don't return here, fall through to download mode
-                    else:
-                        logger.info("[Gemini Video] URL analysis success.")
-                        return gemini_analysis_result
-                except Exception as e:
-                    logger.warning(f"[Gemini Video] URL analysis failed: {e}, falling back to download mode.")
-                    # 如果 URL 分析失败，继续使用下载模式
-            
-            logger.info("[Gemini Video] Starting download mode...")
-            # 1. 处理视频路径/URL，并下载到本地
+            # 第一步：下载视频到本地（不管什么模式都要下载）
             local_path = ""
-            is_temp = False
-
+            
             if video_url.startswith("file:///"):
                 local_path = video_url[8:]
-            elif os.path.exists(video_url):
+                logger.info(f"[Gemini Video] Using local file path: {local_path}")
+            elif os.path.exists(video_url) and os.path.isfile(video_url):
                 local_path = video_url
+                logger.info(f"[Gemini Video] Using existing local file: {local_path}")
             else:
-                # 优先尝试使用 _download_video 获取（通过 OneBot API 或多种策略）
+                # 需要下载
+                logger.info(f"[Gemini Video] Downloading video from: {video_url}")
                 try:
                     dummy_video = Video(file=video_url)
                     stored_path = await self._download_video(dummy_video, event)
                     if stored_path and os.path.exists(stored_path):
                         local_path = stored_path
-                        is_temp = False 
+                        logger.info(f"[Gemini Video] Download successful: {local_path}")
                 except Exception as e_dl:
-                    logger.warning(f"[Gemini Video] _download_video failed: {e_dl}, trying fallback direct download.")
-                    temp_video_path = f"{uuid.uuid4()}.mp4"
-                    local_path = os.path.join(get_astrbot_data_path(), temp_video_path)
-                    logger.info(f"[Gemini Video] Fallback downloading video from {video_url} to {local_path}")
-                    await self._download_from_url_with_retry(video_url, local_path)
-                    is_temp = True
+                    logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)
+                    return f"❌ 无法下载视频: {str(e_dl)}"
             
             if not local_path or not os.path.exists(local_path):
-                return "❌ Video file not found or download failed."
+                return "❌ 视频文件不存在或下载失败。"
 
             # 检查文件大小
             file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
@@ -393,30 +369,25 @@ class GeminiVideoPlugin(Star):
             if file_size_mb > max_size:
                 return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，最大支持 {max_size}MB。"
 
-            # 2. 不再检查分析结果缓存，实现强制重新分析
-            is_default_prompt = not prompt or prompt == "Describe this video." or "分析" in prompt
-            logger.info(f"[Gemini Video] Video ready at {local_path}, checking API mode...")
+            logger.info(f"[Gemini Video] Video ready at {local_path}, size: {file_size_mb:.1f}MB")
+            
+            # 第二步：根据上传模式选择分析方式
+            upload_mode = self.config.get("upload_mode", "base64")
+            api_config = await self._get_api_config()
+            gemini_analysis_result = ""
             
             # 使用锁防止并发分析同一视频
             async with self.analysis_lock:
-                api_config = await self._get_api_config()
-                gemini_analysis_result = ""
-                file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
-                
-                # 检查使用哪种上传模式
-                upload_mode = self.config.get("upload_mode", "base64")  # base64 或 file_api
-                
                 if upload_mode == "file_api":
-                    # 使用文件上传 API 模式
+                    # 文件上传 API 模式：上传到服务器，使用返回的 CDN URL
+                    logger.info(f"[Gemini Video] Using File Upload API mode")
                     try:
-                        logger.info(f"[Gemini Video] Using File Upload API mode. Size: {file_size_mb:.1f}MB")
-                        
                         # 1. 上传文件到 /v1/files
-                        file_id = await self._upload_file_to_api(local_path, api_config)
-                        logger.info(f"[Gemini Video] File uploaded successfully, ID: {file_id}")
+                        file_info = await self._upload_file_to_api(local_path, api_config)
+                        logger.info(f"[Gemini Video] File uploaded successfully")
                         
-                        # 2. 使用 file_id 进行分析
-                        async for result_text in self._call_gemini_api_with_file_id(file_id, prompt or "Describe this video."):
+                        # 2. 使用返回的信息进行分析（优先使用 CDN URL）
+                        async for result_text in self._call_gemini_api_with_file_id(file_info, prompt or "Describe this video."):
                             gemini_analysis_result += result_text
                         
                         if not gemini_analysis_result:
@@ -427,19 +398,19 @@ class GeminiVideoPlugin(Star):
                         logger.error(f"[Gemini Video] File API mode failed: {e}", exc_info=True)
                         return f"❌ 视频分析失败: {str(e)}"
                 else:
-                    # 使用 Base64 编码模式（默认）
+                    # Base64 编码模式（默认）
                     max_size_mb = 30  # Base64 模式建议最大文件大小
                     if file_size_mb > max_size_mb:
-                        return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。"
+                        return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。如需上传更大文件，请将 upload_mode 设置为 file_api。"
                     
                     try:
-                        logger.info(f"[Gemini Video] Using Base64 flow. Size: {file_size_mb:.1f}MB")
+                        logger.info(f"[Gemini Video] Using Base64 encoding mode")
                         import base64
                         with open(local_path, "rb") as video_file:
                             b64_data = base64.b64encode(video_file.read()).decode("utf-8")
                         
                         data_uri = f"data:video/mp4;base64,{b64_data}"
-                        logger.info(f"[Gemini Video] Calling OpenAI compatible API with Base64...")
+                        logger.info(f"[Gemini Video] Calling Gemini API with Base64...")
                         
                         async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
                             gemini_analysis_result += result_text
@@ -449,7 +420,7 @@ class GeminiVideoPlugin(Star):
                             
                         logger.info("[Gemini Video] Base64 flow analysis success.")
                     except Exception as e:
-                        logger.error(f"[Gemini Video] Analysis failed: {e}", exc_info=True)
+                        logger.error(f"[Gemini Video] Base64 mode failed: {e}", exc_info=True)
                         return f"❌ 视频分析失败: {str(e)}"
                 
                 logger.info(f"[Gemini Video] Analysis complete, length: {len(gemini_analysis_result)}")

@@ -464,9 +464,9 @@ class GeminiVideoPlugin(Star):
 
     async def _download_from_url_with_retry(self, url: str, target_path: str, max_retries: int | None = None) -> str:
         """从 URL 下载文件，支持重试、超时控制和下载速度监控"""
-        # 移除 download_timeout 配置，使用固定安全超时 (300秒) 防止永久死锁
         # 实际连接质量由下方的下载速度监控负责
-        safe_read_timeout = 300
+        # 默认 300秒，作为最后的安全底线防止死锁
+        safe_read_timeout = self.config.get("download_stream_timeout", 300)
         actual_max_retries = max_retries if max_retries is not None else self.config.get("download_retries", 3)
         retry_delay = self.config.get("download_retry_delay", 5)
         proxy = self.config.get("proxy", "")
@@ -850,7 +850,8 @@ class GeminiVideoPlugin(Star):
         # 鉴于 python httpx 的限制，我们设置一个极长的 read timeout (例如 1小时)
         # 但我们用 monitor task 来主动取消请求
         
-        timeout = httpx.Timeout(3600.0, connect=30.0) # 1小时读取超时，靠监控任务中断
+        safe_upload_timeout = self.config.get("upload_stream_timeout", 3600)
+        timeout = httpx.Timeout(float(safe_upload_timeout), connect=30.0) # 读取超时，靠监控任务中断
         proxy = self.config.get("proxy", "")
         client_kwargs = {"timeout": timeout}
         if proxy: client_kwargs["proxy"] = proxy

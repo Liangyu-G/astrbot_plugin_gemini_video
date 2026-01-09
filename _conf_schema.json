@@ -61,6 +61,18 @@
     "type": "int",
     "default": 300
   },
+  "download_stream_timeout": {
+    "description": "下载安全超时 (秒)",
+    "hint": "下载时的最大无响应安全超时。只要下载在进行（有速度）就不会触发，仅防止死连接。建议保持默认或设置较大值。",
+    "type": "int",
+    "default": 300
+  },
+  "upload_stream_timeout": {
+    "description": "上传安全超时 (秒)",
+    "hint": "上传时的最大无响应安全超时。只要上传在进行（有速度）就不会触发，仅防止死连接。建议设置较大值以支持大文件。",
+    "type": "int",
+    "default": 3600
+  },
   "download_retries": {
     "description": "下载重试次数",
     "hint": "当视频下载失败后的重试尝试次数。",

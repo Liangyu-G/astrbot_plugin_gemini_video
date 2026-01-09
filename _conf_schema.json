@@ -96,5 +96,11 @@
     "hint": "插件运行后台清理任务的频率。",
     "type": "int",
     "default": 6
+  },
+  "watching_hint": {
+    "description": "正在分析提示文本",
+    "hint": "当开始分析视频时向用户显示的提示消息。可自定义为您的机器人角色语气。",
+    "type": "string",
+    "default": "亚托莉正在看视频哦~"
   }
 }

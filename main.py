@@ -66,7 +66,8 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
              # 发送中间提示 (使用更安全的方式)
              try:
                  if context.context and context.context.event:
-                     await self.plugin.context.send_message(context.context.event.unified_msg_origin, MessageChain([Plain("亚托莉正在看视频哦~")]))
+                      watching_hint = self.plugin.config.get("watching_hint", "亚托莉正在看视频哦~")
+                      await self.plugin.context.send_message(context.context.event.unified_msg_origin, MessageChain([Plain(watching_hint)]))
                  else:
                      logger.warning("[Gemini Video] context.context.event is None in tool call.")
              except Exception as e_hint:
@@ -266,7 +267,8 @@ class GeminiVideoPlugin(Star):
                 )
                 return
             
-            yield event.plain_result("亚托莉正在看视频哦~")
+            watching_hint = self.config.get("watching_hint", "亚托莉正在看视频哦~")
+            yield event.plain_result(watching_hint)
 
             video_url = video_component.file
             if not video_url:

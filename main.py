@@ -340,6 +340,11 @@ class GeminiVideoPlugin(Star):
         try:
             # 第一步：下载视频到本地（不管什么模式都要下载）
             local_path = ""
+            is_temp = False
+            
+            # 判断是否是默认提示词
+            default_prompt = self.config.get("default_prompt", "请详细分析这个视频的内容，包括场景、人物、动作和主题。")
+            is_default_prompt = (prompt is None) or (prompt.strip() == default_prompt.strip()) or (prompt.strip() == "Describe this video.")
             
             if video_url.startswith("file:///"):
                 local_path = video_url[8:]
@@ -374,6 +379,7 @@ class GeminiVideoPlugin(Star):
                         stored_path = await self._download_video(dummy_video, event)
                         if stored_path and os.path.exists(stored_path):
                             local_path = stored_path
+                            is_temp = True # 标记为临时文件，分析完需要清理
                             logger.info(f"[Gemini Video] Download successful: {local_path}")
                     except Exception as e_dl:
                         logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)

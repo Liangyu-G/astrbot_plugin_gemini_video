@@ -390,30 +390,54 @@ class GeminiVideoPlugin(Star):
                 gemini_analysis_result = ""
                 file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
                 
-                # 使用 Base64 编码上传
-                max_size_mb = 30  # Base64 模式建议最大文件大小
-                if file_size_mb > max_size_mb:
-                    return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。"
+                # 检查使用哪种上传模式
+                upload_mode = self.config.get("upload_mode", "base64")  # base64 或 file_api
                 
-                try:
-                    logger.info(f"[Gemini Video] Using Base64 flow. Size: {file_size_mb:.1f}MB")
-                    import base64
-                    with open(local_path, "rb") as video_file:
-                        b64_data = base64.b64encode(video_file.read()).decode("utf-8")
-                    
-                    data_uri = f"data:video/mp4;base64,{b64_data}"
-                    logger.info(f"[Gemini Video] Calling OpenAI compatible API with Base64...")
-                    
-                    async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
-                        gemini_analysis_result += result_text
-                    
-                    if not gemini_analysis_result:
-                        return f"❌ 视频分析失败。API 未返回有效结果。"
+                if upload_mode == "file_api":
+                    # 使用文件上传 API 模式
+                    try:
+                        logger.info(f"[Gemini Video] Using File Upload API mode. Size: {file_size_mb:.1f}MB")
                         
-                    logger.info("[Gemini Video] Base64 flow analysis success.")
-                except Exception as e:
-                    logger.error(f"[Gemini Video] Analysis failed: {e}", exc_info=True)
-                    return f"❌ 视频分析失败: {str(e)}"
+                        # 1. 上传文件到 /v1/files
+                        file_id = await self._upload_file_to_api(local_path, api_config)
+                        logger.info(f"[Gemini Video] File uploaded successfully, ID: {file_id}")
+                        
+                        # 2. 使用 file_id 进行分析
+                        async for result_text in self._call_gemini_api_with_file_id(file_id, prompt or "Describe this video."):
+                            gemini_analysis_result += result_text
+                        
+                        if not gemini_analysis_result:
+                            return f"❌ 视频分析失败。API 未返回有效结果。"
+                            
+                        logger.info("[Gemini Video] File API flow analysis success.")
+                    except Exception as e:
+                        logger.error(f"[Gemini Video] File API mode failed: {e}", exc_info=True)
+                        return f"❌ 视频分析失败: {str(e)}"
+                else:
+                    # 使用 Base64 编码模式（默认）
+                    max_size_mb = 30  # Base64 模式建议最大文件大小
+                    if file_size_mb > max_size_mb:
+                        return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。"
+                    
+                    try:
+                        logger.info(f"[Gemini Video] Using Base64 flow. Size: {file_size_mb:.1f}MB")
+                        import base64
+                        with open(local_path, "rb") as video_file:
+                            b64_data = base64.b64encode(video_file.read()).decode("utf-8")
+                        
+                        data_uri = f"data:video/mp4;base64,{b64_data}"
+                        logger.info(f"[Gemini Video] Calling OpenAI compatible API with Base64...")
+                        
+                        async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
+                            gemini_analysis_result += result_text
+                        
+                        if not gemini_analysis_result:
+                            return f"❌ 视频分析失败。API 未返回有效结果。"
+                            
+                        logger.info("[Gemini Video] Base64 flow analysis success.")
+                    except Exception as e:
+                        logger.error(f"[Gemini Video] Analysis failed: {e}", exc_info=True)
+                        return f"❌ 视频分析失败: {str(e)}"
                 
                 logger.info(f"[Gemini Video] Analysis complete, length: {len(gemini_analysis_result)}")
                 
@@ -705,6 +729,72 @@ class GeminiVideoPlugin(Star):
             await asyncio.sleep(2)
         
         raise Exception("视频处理超时")
+    
+    async def _upload_file_to_api(self, file_path: str, api_config: dict) -> dict:
+        """上传文件到 /v1/files API
+        
+        Args:
+            file_path: 本地文件路径
+            api_config: API 配置
+            
+        Returns:
+            dict: 包含 id, url 等信息的响应
+        """
+        import mimetypes
+        
+        url = f"{api_config['base_url']}/v1/files"
+        
+        # 检测文件类型
+        file_type = mimetypes.guess_type(file_path)[0] or 'video/mp4'
+        file_name = os.path.basename(file_path)
+        
+        # 读取文件内容
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
+        
+        # 构建 multipart/form-data
+        files = {
+            'file': (file_name, file_content, file_type)
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {api_config['api_key']}"
+        }
+        
+        logger.info(f"[Gemini Video] Uploading file to {url}")
+        
+        # 发送上传请求
+        response = await self.client.post(url, files=files, headers=headers)
+        response.raise_for_status()
+        
+        result = response.json()
+        logger.debug(f"[Gemini Video] Upload response: {result}")
+        
+        return result
+    
+    async def _call_gemini_api_with_file_id(self, file_info: dict, prompt: str):
+        """使用上传后的文件信息调用 Gemini API 进行分析
+        
+        Args:
+            file_info: 上传文件后返回的信息（包含 id, url 等）
+            prompt: 提示词
+            
+        Yields:
+            分析结果文本片段
+        """
+        api_config = await self._get_api_config()
+        
+        # 优先使用返回的 URL（CDN URL），如果没有则使用 file_id
+        file_url = file_info.get("url")
+        
+        if file_url:
+            # 如果有 URL，直接使用 URL 分析（类似现有的 URL 分析）
+            logger.info(f"[Gemini Video] Using uploaded file URL: {file_url}")
+            async for chunk in self._call_gemini_api_stream(file_url, prompt):
+                yield chunk
+        else:
+            # 如果没有 URL，说明 API 不支持此模式
+            raise ValueError("File upload did not return a usable URL. File API mode may not be supported.")
 
     async def _generate_content_stream(self, file_uri: str, prompt: str):
         """调用 Native Gemini API 生成内容 (流式)"""

@@ -12,6 +12,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from pydantic import Field
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 import httpx
+import httpcore
 import os
 import json
 import asyncio
@@ -954,8 +955,6 @@ class GeminiVideoPlugin(Star):
                         monitor_task.result()
                         
                 except Exception as e:
-                    import httpx
-                    import httpcore
                     if isinstance(e, (httpx.ReadError, httpcore.ReadError)):
                         logger.warning(f"[Gemini Video] 上传遇到 ReadError (可能是连接超时): {e}")
                         if attempt == max_retries - 1:

@@ -73,8 +73,24 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
              except Exception as e_hint:
                  logger.warning(f"[Gemini Video] Failed to send hint: {e_hint}")
 
+
              # Pass the event context to the analysis method for more robust downloading
              logger.info(f"[Gemini Video] Calling _perform_video_analysis...")
+             
+             # Check if video is in cache first
+             cached_path = None
+             if context.context and context.context.event:
+                 msg_id = context.context.event.message_id
+                 if msg_id and msg_id in self.plugin.video_path_cache:
+                     cached_path = self.plugin.video_path_cache[msg_id]
+                     logger.info(f"[Gemini Video] Found cached video for message {msg_id}: {cached_path}")
+                     # Use cached path instead of original URL
+                     if os.path.exists(cached_path):
+                         video_url = cached_path
+                         logger.info(f"[Gemini Video] Using cached file path: {video_url}")
+                     else:
+                         logger.warning(f"[Gemini Video] Cached path no longer exists: {cached_path}")
+             
              result = await self.plugin._perform_video_analysis(video_url, prompt, event=context.context.event)
              logger.info(f"[Gemini Video] _perform_video_analysis returned. Length: {len(result) if result else 0}")
              return result

@@ -778,10 +778,16 @@ class GeminiVideoPlugin(Star):
         logger.info(f"[Gemini Video] Uploading {file_size_mb:.1f}MB file to {url}")
         
         # 为大文件上传设置更长的超时时间（基于文件大小和网络速度）
-        # 假设上传速度为 5Mbps = 0.625 MB/s
-        # 理论上传时间 = file_size_mb / 0.625 = file_size_mb * 1.6
+        # 从配置读取上传速度（Mbps），默认 5Mbps
+        upload_speed_mbps = self.config.get("upload_speed_mbps", 5)
+        upload_speed_mb_per_sec = upload_speed_mbps / 8  # 转换为 MB/s
+        
+        # 理论上传时间 = file_size_mb / upload_speed_mb_per_sec
         # 加上 2 倍安全余量 + 60 秒握手/处理时间
-        upload_timeout = max(300, int(file_size_mb * 3.2) + 60)
+        theoretical_time = file_size_mb / upload_speed_mb_per_sec
+        upload_timeout = max(300, int(theoretical_time * 2) + 60)
+        
+        logger.debug(f"[Gemini Video] Upload speed: {upload_speed_mbps}Mbps ({upload_speed_mb_per_sec:.2f}MB/s)")
         logger.debug(f"[Gemini Video] Upload timeout set to {upload_timeout}s ({upload_timeout/60:.1f}min) for {file_size_mb:.1f}MB file")
         
         # 创建临时客户端with自定义超时

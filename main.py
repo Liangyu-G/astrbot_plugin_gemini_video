@@ -76,23 +76,6 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
              # Pass the event context to the analysis method for more robust downloading
              logger.info(f"[Gemini Video] Calling _perform_video_analysis...")
              
-             # Check if video is in cache first
-             cached_path = None
-             if context.context and context.context.event:
-                 msg_id = context.context.event.message_id
-                 if msg_id and msg_id in self.plugin.video_path_cache:
-                     cached_val = self.plugin.video_path_cache[msg_id]
-                     logger.info(f"[Gemini Video] Found cached video for message {msg_id}: {cached_val}")
-                     # Use cached path/url instead of original URL
-                     if cached_val.startswith("http"):
-                         video_url = cached_val
-                         logger.info(f"[Gemini Video] Using cached URL: {video_url}")
-                     elif os.path.exists(cached_val):
-                         video_url = cached_val
-                         logger.info(f"[Gemini Video] Using cached file path: {video_url}")
-                     else:
-                         logger.warning(f"[Gemini Video] Cached path no longer exists: {cached_val}")
-             
              result = await self.plugin._perform_video_analysis(video_url, prompt, event=context.context.event)
              logger.info(f"[Gemini Video] _perform_video_analysis returned. Length: {len(result) if result else 0}") 
              

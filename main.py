@@ -774,11 +774,26 @@ class GeminiVideoPlugin(Star):
             "Authorization": f"Bearer {api_config['api_key']}"
         }
         
-        logger.info(f"[Gemini Video] Uploading file to {url}")
+        file_size_mb = len(file_content) / (1024 * 1024)
+        logger.info(f"[Gemini Video] Uploading {file_size_mb:.1f}MB file to {url}")
+        
+        # 为大文件上传设置更长的超时时间（基于文件大小动态计算）
+        # 假设上传速度至少 1MB/s，再加上一些余量
+        upload_timeout = max(300, int(file_size_mb * 2) + 60)  # 至少5分钟，大文件更长
+        logger.debug(f"[Gemini Video] Upload timeout set to {upload_timeout}s for {file_size_mb:.1f}MB file")
+        
+        # 创建临时客户端with自定义超时
+        timeout = httpx.Timeout(upload_timeout, connect=30.0)
+        proxy = self.config.get("proxy", "")
+        
+        client_kwargs = {"timeout": timeout}
+        if proxy:
+            client_kwargs["proxy"] = proxy
         
         # 发送上传请求
-        response = await self.client.post(url, files=files, headers=headers)
-        response.raise_for_status()
+        async with httpx.AsyncClient(**client_kwargs) as upload_client:
+            response = await upload_client.post(url, files=files, headers=headers)
+            response.raise_for_status()
         
         result = response.json()
         logger.debug(f"[Gemini Video] Upload response: {result}")

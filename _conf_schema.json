@@ -13,7 +13,7 @@
   },
   "model": {
     "description": "视频分析模型",
-    "hint": "建议：视频 < 30MB 自动走 Base64 兼容流程；若较大且选用了 gemini 模型则走 Native 上传。推荐：gemini-3-flash-preview。",
+    "hint": "选择要使用的模型。当前仅支持 Base64 编码方式，建议视频小于 30MB。推荐：gemini-3-flash-preview。",
     "type": "string",
     "default": "gemini-3-flash-preview",
     "options": [

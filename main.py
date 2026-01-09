@@ -366,58 +366,34 @@ class GeminiVideoPlugin(Star):
             
             # 使用锁防止并发分析同一视频
             async with self.analysis_lock:
-                # 3. 调用 API 进行分析
                 api_config = await self._get_api_config()
                 gemini_analysis_result = ""
                 file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
                 
-                # --- A. 优先尝试 OpenAI 兼容流程 (Base64) ---
-                # 这种情况兼容性最广，能绕过服务端的 URL 访问限制
-                base64_success = False
+                # 使用 Base64 编码上传
+                max_size_mb = 30  # Base64 模式建议最大文件大小
+                if file_size_mb > max_size_mb:
+                    return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。"
                 
-                # 如果视频不是特别巨大，或者非官方模型，优先用 Base64
-                if file_size_mb <= 30: 
-                    try:
-                        logger.info(f"[Gemini Video] Priority: Using Base64 flow. Size: {file_size_mb:.1f}MB")
-                        import base64
-                        with open(local_path, "rb") as video_file:
-                            b64_data = base64.b64encode(video_file.read()).decode("utf-8")
+                try:
+                    logger.info(f"[Gemini Video] Using Base64 flow. Size: {file_size_mb:.1f}MB")
+                    import base64
+                    with open(local_path, "rb") as video_file:
+                        b64_data = base64.b64encode(video_file.read()).decode("utf-8")
+                    
+                    data_uri = f"data:video/mp4;base64,{b64_data}"
+                    logger.info(f"[Gemini Video] Calling OpenAI compatible API with Base64...")
+                    
+                    async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
+                        gemini_analysis_result += result_text
+                    
+                    if not gemini_analysis_result:
+                        return f"❌ 视频分析失败。API 未返回有效结果。"
                         
-                        data_uri = f"data:video/mp4;base64,{b64_data}"
-                        logger.info(f"[Gemini Video] Calling OpenAI compatible API with Base64...")
-                        
-                        async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
-                            gemini_analysis_result += result_text
-                        
-                        if gemini_analysis_result:
-                            base64_success = True
-                            logger.info("[Gemini Video] Base64 flow analysis success.")
-                    except Exception as e_b64:
-                        logger.warning(f"[Gemini Video] Base64 flow failed: {e_b64}, will try fallback.")
-                        gemini_analysis_result = "" # 重置，准备 Fallback
-
-                # --- B. 如果 Base64 未执行或失败，且是 Gemini 模型，则尝试 Native Gemini 流程 (Upload -> GenerateContent) ---
-                if not base64_success:
-                    if api_config["model"].startswith("gemini-"):
-                        try:
-                            logger.info(f"[Gemini Video] Fallback: Using Native Gemini Upload flow for model {api_config['model']}")
-                            file_uri = await self._upload_file(local_path, "video/mp4", api_config)
-                            # 再次重置结果缓存
-                            gemini_analysis_result = "" 
-                            async for chunk in self._generate_content_stream(file_uri, prompt or "Describe this video."):
-                                gemini_analysis_result += chunk
-                            
-                            if gemini_analysis_result:
-                                logger.info("[Gemini Video] Fallback Native Gemini success.")
-                        except Exception as e_native:
-                            logger.error(f"[Gemini Video] All analysis flows failed. Native error: {e_native}")
-                            if not gemini_analysis_result:
-                                return f"❌ 视频分析失败。Base64 和 Native 流程均不可用。错误: {e_native}"
-                    else:
-                        if file_size_mb > 30:
-                            return f"❌ 视频过大 ({file_size_mb:.1f}MB)，由于模型不是 gemini- 开头，无法回退到上传流程。"
-                        if not gemini_analysis_result:
-                            return f"❌ 视频分析失败。Base64 流程未能通过 {api_config['model']} 获取结果。"
+                    logger.info("[Gemini Video] Base64 flow analysis success.")
+                except Exception as e:
+                    logger.error(f"[Gemini Video] Analysis failed: {e}", exc_info=True)
+                    return f"❌ 视频分析失败: {str(e)}"
                 
                 logger.info(f"[Gemini Video] Analysis complete, length: {len(gemini_analysis_result)}")
                 

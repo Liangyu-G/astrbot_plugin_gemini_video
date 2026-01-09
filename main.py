@@ -649,28 +649,6 @@ class GeminiVideoPlugin(Star):
                             if "url" in res and res["url"] and res["url"].startswith("http"):
                                 logger.info(f"[Gemini Video] get_file 返回 URL: {res['url']}")
                                 url = res["url"]
-                                # 尝试 OneBot download_file API（有超时风险，限时20秒）
-                                file_name = f"{uuid.uuid4().hex}.mp4"
-                                try:
-                                    logger.info(f"[Gemini Video] 尝试 OneBot download_file API (超时: 20秒)")
-                                    dl_res = await asyncio.wait_for(
-                                        bot.call_action("download_file", url=url, name=file_name),
-                                        timeout=20.0
-                                    )
-                                    if dl_res and isinstance(dl_res, dict) and "file" in dl_res:
-                                        path = dl_res["file"]
-                                        if path and os.path.exists(path):
-                                            logger.info(f"[Gemini Video] OneBot download_file 成功: {path}")
-                                            return await self._store_video(path)
-                                except asyncio.TimeoutError:
-                                    logger.warning(f"[Gemini Video] OneBot download_file API 超时，降级到手动下载")
-                                except Exception as e:
-                                    logger.warning(f"[Gemini Video] OneBot download_file API 失败: {e}")
-
-                                # 降级到本地下载
-                                download_dir = os.path.join(get_astrbot_data_path(), "temp")
-                                video_file_path = os.path.join(download_dir, file_name)
-                                # 使用带重试的下载方法
                                 path = await self._download_from_url_with_retry(res["url"], video_file_path)
                                 if path: return await self._store_video(path)
                     except Exception as e:

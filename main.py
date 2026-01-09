@@ -892,6 +892,9 @@ class GeminiVideoPlugin(Star):
         safe_upload_timeout = self.config.get("upload_stream_timeout", 3600)
         timeout = httpx.Timeout(float(safe_upload_timeout), connect=30.0) # 读取超时，靠监控任务中断
         proxy = self.config.get("proxy", "")
+        
+        logger.info(f"[Gemini Video] Upload Configuration - Timeout: {safe_upload_timeout}s, Proxy: {proxy if proxy else 'None'}")
+        
         client_kwargs = {"timeout": timeout}
         if proxy: client_kwargs["proxy"] = proxy
 
@@ -951,7 +954,15 @@ class GeminiVideoPlugin(Star):
                         monitor_task.result()
                         
                 except Exception as e:
-                    logger.warning(f"[Gemini Video] 上传尝试 {attempt+1} 失败: {e}")
+                    import httpx
+                    import httpcore
+                    if isinstance(e, (httpx.ReadError, httpcore.ReadError)):
+                        logger.warning(f"[Gemini Video] 上传遇到 ReadError (可能是连接超时): {e}")
+                        if attempt == max_retries - 1:
+                            logger.error("[Gemini Video] 提示: 频繁的 ReadError 通常意味着中间节点(代理/网关)限制了连接时长 (常见为120秒)。建议尝试关闭代理(如果使用直连优化域名)或更换节点。")
+                    else:
+                         logger.warning(f"[Gemini Video] 上传尝试 {attempt+1} 失败: {e}")
+                    
                     if attempt == max_retries - 1:
                         raise e
                     # 继续下一次重试

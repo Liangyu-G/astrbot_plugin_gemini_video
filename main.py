@@ -492,7 +492,13 @@ class GeminiVideoPlugin(Star):
                     "headers": headers,
                     "follow_redirects": True
                 }
-                if proxy:
+                
+                # 智能代理逻辑：如果是国内域名，强制不走代理
+                from urllib.parse import urlparse
+                hostname = urlparse(url).hostname
+                if hostname and (hostname.endswith(".qq.com") or hostname.endswith(".tencent.com")):
+                    logger.info(f"[Gemini Video] 检测到国内域名 ({hostname})，强制直连 (跳过代理)")
+                elif proxy:
                     client_kwargs["proxy"] = proxy
 
                 async with httpx.AsyncClient(**client_kwargs) as client:

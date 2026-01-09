@@ -463,11 +463,15 @@ class GeminiVideoPlugin(Star):
 
 
     async def _download_from_url_with_retry(self, url: str, target_path: str, max_retries: int | None = None) -> str:
-        """从 URL 下载文件，支持重试和超时控制"""
+        """从 URL 下载文件，支持重试、超时控制和下载速度监控"""
         read_timeout = self.config.get("download_timeout", 20)
         actual_max_retries = max_retries if max_retries is not None else self.config.get("download_retries", 3)
         retry_delay = self.config.get("download_retry_delay", 5)
         proxy = self.config.get("proxy", "")
+        
+        # 下载速度监控配置
+        min_speed_kb_per_sec = 5  # 最小下载速度 5KB/s
+        speed_check_interval = 10  # 每10秒检查一次速度
 
         for i in range(actual_max_retries):
             try:
@@ -493,20 +497,61 @@ class GeminiVideoPlugin(Star):
                 async with httpx.AsyncClient(**client_kwargs) as client:
                     async with client.stream('GET', url) as response:
                         response.raise_for_status()
+                        
+                        # 初始化速度监控变量
+                        downloaded_bytes = 0
+                        last_check_time = time.time()
+                        last_check_bytes = 0
+                        
                         with open(target_path, 'wb') as f:
                             async for chunk in response.aiter_bytes():
                                 f.write(chunk)
+                                downloaded_bytes += len(chunk)
+                                
+                                # 检查下载速度
+                                current_time = time.time()
+                                elapsed = current_time - last_check_time
+                                
+                                if elapsed >= speed_check_interval:
+                                    # 计算这段时间的平均速度
+                                    bytes_since_last_check = downloaded_bytes - last_check_bytes
+                                    speed_kb_per_sec = (bytes_since_last_check / 1024) / elapsed
+                                    
+                                    logger.debug(f"[Gemini Video] 下载速度: {speed_kb_per_sec:.2f} KB/s (已下载: {downloaded_bytes / 1024 / 1024:.2f} MB)")
+                                    
+                                    if speed_kb_per_sec < min_speed_kb_per_sec:
+                                        raise Exception(
+                                            f"下载速度过慢 ({speed_kb_per_sec:.2f} KB/s < {min_speed_kb_per_sec} KB/s)，"
+                                            f"在 {elapsed:.1f} 秒内仅下载了 {bytes_since_last_check / 1024:.2f} KB"
+                                        )
+                                    
+                                    # 更新检查点
+                                    last_check_time = current_time
+                                    last_check_bytes = downloaded_bytes
+                        
+                        logger.info(f"[Gemini Video] 下载完成: {downloaded_bytes / 1024 / 1024:.2f} MB")
                 return target_path
+                
             except (httpx.TimeoutException, httpx.NetworkError) as e:
                 logger.warning(f"[Gemini Video] 下载失败 (第 {i+1} 次): {e}")
+                # 清理可能存在的不完整文件
+                if os.path.exists(target_path):
+                    try:
+                        os.remove(target_path)
+                    except:
+                        pass
                 if i == actual_max_retries - 1:
                     raise e
-                # 立即重试，不等待
             except Exception as e:
+                logger.warning(f"[Gemini Video] 下载遇到错误 (第 {i+1} 次): {e}")
+                # 清理可能存在的不完整文件
+                if os.path.exists(target_path):
+                    try:
+                        os.remove(target_path)
+                    except:
+                        pass
                 if i == actual_max_retries - 1:
                     raise e
-                logger.warning(f"[Gemini Video] 下载遇到错误: {e}, 即将重试")
-                # 立即重试，不等待
         
         raise Exception("下载失败，超过最大重试次数")
 

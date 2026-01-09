@@ -471,9 +471,8 @@ class GeminiVideoPlugin(Star):
         retry_delay = self.config.get("download_retry_delay", 5)
         proxy = self.config.get("proxy", "")
         
-        # 下载速度监控配置
-        min_speed_kb_per_sec = 768  # 最小下载速度 0.75MB/s
-        speed_check_interval = 10  # 每10秒检查一次速度
+        # 下载监控配置
+        stall_check_interval = 10  # 每10秒检查一次是否停滞
 
         for i in range(actual_max_retries):
             try:
@@ -500,7 +499,7 @@ class GeminiVideoPlugin(Star):
                     async with client.stream('GET', url) as response:
                         response.raise_for_status()
                         
-                        # 初始化速度监控变量
+                        # 初始化监控变量
                         downloaded_bytes = 0
                         last_check_time = time.time()
                         last_check_bytes = 0
@@ -510,22 +509,20 @@ class GeminiVideoPlugin(Star):
                                 f.write(chunk)
                                 downloaded_bytes += len(chunk)
                                 
-                                # 检查下载速度
+                                # 检查下载状态
                                 current_time = time.time()
                                 elapsed = current_time - last_check_time
                                 
-                                if elapsed >= speed_check_interval:
-                                    # 计算这段时间的平均速度
+                                if elapsed >= stall_check_interval:
+                                    # 计算这段时间的数据增量
                                     bytes_since_last_check = downloaded_bytes - last_check_bytes
                                     speed_kb_per_sec = (bytes_since_last_check / 1024) / elapsed
                                     
-                                    logger.info(f"[Gemini Video] 下载速度: {speed_kb_per_sec:.2f} KB/s (已下载: {downloaded_bytes / 1024 / 1024:.2f} MB)")
+                                    logger.info(f"[Gemini Video] 下载进度: {downloaded_bytes / 1024 / 1024:.2f} MB (速度: {speed_kb_per_sec:.2f} KB/s)")
                                     
-                                    if speed_kb_per_sec < min_speed_kb_per_sec:
-                                        raise Exception(
-                                            f"下载速度过慢 ({speed_kb_per_sec:.2f} KB/s < {min_speed_kb_per_sec} KB/s)，"
-                                            f"在 {elapsed:.1f} 秒内仅下载了 {bytes_since_last_check / 1024:.2f} KB"
-                                        )
+                                    # 仅当这段时间内没有任何数据增长时，才判定为停滞
+                                    if bytes_since_last_check <= 0:
+                                        raise Exception(f"下载停滞，在 {elapsed:.1f} 秒内未接收到任何数据")
                                     
                                     # 更新检查点
                                     last_check_time = current_time

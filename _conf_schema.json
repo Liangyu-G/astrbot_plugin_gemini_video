@@ -41,7 +41,7 @@
     "description": "默认提示词",
     "hint": "当用户直接发送 /分析视频 而未跟说明文字时，使用的默认分析请求。",
     "type": "string",
-    "default": "请详细分析这个视频的内容，包括场景、人物、动作 and 主题。"
+    "default": "请详细分析这个视频的内容，包括场景、人物、动作和主题。"
   },
   "video_storage_path": {
     "description": "视频存储目录",
@@ -102,5 +102,11 @@
     "hint": "当开始分析视频时向用户显示的提示消息。可自定义为您的机器人角色语气。",
     "type": "string",
     "default": "亚托莉正在看视频哦~"
+  },
+  "use_url_analysis": {
+    "description": "启用 URL 直接分析",
+    "hint": "对于远程 HTTP/HTTPS 视频链接，是否跳过下载直接发送 URL 到 API 分析。可节省带宽和时间，但需要 API 能访问该 URL。",
+    "type": "bool",
+    "default": true
   }
 }

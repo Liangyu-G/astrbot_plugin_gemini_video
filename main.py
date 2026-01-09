@@ -327,6 +327,26 @@ class GeminiVideoPlugin(Star):
     async def _perform_video_analysis(self, video_url: str, prompt: str | None = None, event: AstrMessageEvent = None) -> str:
         """执行视频分析的核心逻辑"""
         try:
+            # 检查是否启用 URL 直接分析
+            use_url_analysis = self.config.get("use_url_analysis", True)
+            
+            # 如果是远程 URL 且启用了直接分析，则跳过下载
+            if use_url_analysis and (video_url.startswith("http://") or video_url.startswith("https://")):
+                logger.info(f"[Gemini Video] Using direct URL analysis for: {video_url}")
+                try:
+                    gemini_analysis_result = ""
+                    async for chunk in self._call_gemini_api_stream(video_url, prompt or "Describe this video."):
+                        gemini_analysis_result += chunk
+                    
+                    if not gemini_analysis_result:
+                        return "❌ 视频分析失败。API 未返回有效结果。"
+                    
+                    logger.info("[Gemini Video] URL analysis success.")
+                    return gemini_analysis_result
+                except Exception as e:
+                    logger.warning(f"[Gemini Video] URL analysis failed: {e}, falling back to download mode.")
+                    # 如果 URL 分析失败，继续使用下载模式
+            
             # 1. 处理视频路径/URL，并下载到本地
             local_path = ""
             is_temp = False

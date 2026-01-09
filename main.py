@@ -49,17 +49,23 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
         if not self.plugin:
             return "Plugin instance missing."
         
+        
         video_url = kwargs.get("video_url")
         prompt = kwargs.get("prompt", "Describe this video.")
         
-        # If no URL provided in args, try to find one in the current event context
-        if not video_url:
-            video_comp = await self.plugin._find_video_component(context.context.event)
-            if video_comp:
-                video_url = video_comp.file
-                logger.info(f"[Gemini Video] Tool auto-detected video in context: {video_url}")
-            else:
-                return "Please provide a video URL or send a video first."
+        # IMPORTANT: Prioritize finding video from the current event/Reply
+        # The LLM may hallucinate or extract URLs from chat history
+        video_comp = await self.plugin._find_video_component(context.context.event)
+        if video_comp:
+            video_url = video_comp.file
+            logger.info(f"[Gemini Video] Found video in current event: {video_url}")
+        elif not video_url:
+            # Only error out if there's truly no video anywhere
+            return "Please provide a video URL or send a video first."
+        else:
+            # LLM provided a URL, but no video in current event
+            # This might be a hallucination or extracted from history
+            logger.warning(f"[Gemini Video] Using LLM-provided URL (no video in current event): {video_url}")
 
         try:
 

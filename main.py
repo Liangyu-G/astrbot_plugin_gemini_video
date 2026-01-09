@@ -524,26 +524,36 @@ class GeminiVideoPlugin(Star):
         raise Exception("下载失败，超过最大重试次数")
 
     async def _download_video(self, video: Video, event: AstrMessageEvent) -> str:
-        """下载视频到本地存储目录，尝试多种策略 (强制重新下载)"""
+        """下载视频到本地存储目录，尝试多种策略"""
         
         # 1. 尝试直接获取本地路径 (仅当它本来就在一个外部存在的路径时使用)
-        # 不再检查我们自己的 temp 或 videos 目录，以实现强制下载
         potential_paths = []
         if video.path: potential_paths.append(video.path)
-        # 注意：不再将 video.file 直接视为本地路径，除非它是绝对路径且不在我们的存储区
         
         for p in potential_paths:
             if p and os.path.isabs(p) and os.path.exists(p) and os.path.isfile(p):
-                # 如果这个路径就在我们的存储目录里，我们要忽略它以强制下载
+                # 如果这个路径就在我们的存储目录里，直接使用它
                 if self.video_storage_path and str(self.video_storage_path) in p:
-                    continue
-                if "temp" in p and get_astrbot_data_path() in p:
-                    continue
-
+                    logger.info(f"[Gemini Video] 视频已在存储目录: {p}")
+                    return p
+                # 如果是外部路径，存储一份副本
                 logger.info(f"[Gemini Video] 发现外部本地视频文件: {p}")
                 return await self._store_video(p)
         
-        # 2. 尝试使用 video.convert_to_file_path() (AstrBot 内置转换)
+        # 2. 检查是否已经下载过这个 URL 的视频
+        url = getattr(video, "url", None) or video.file
+        if url and url.startswith("http"):
+            # 计算 URL 哈希，检查是否已有文件
+            import hashlib
+            url_hash = hashlib.md5(url.encode()).hexdigest()
+            expected_filename = f"video_{url_hash}.mp4"
+            expected_path = self.video_storage_path / expected_filename
+            
+            if expected_path.exists():
+                logger.info(f"[Gemini Video] 发现已缓存的视频文件: {expected_path}")
+                return str(expected_path)
+        
+        # 3. 尝试使用 video.convert_to_file_path() (AstrBot 内置转换)
         try:
             path = await video.convert_to_file_path()
             if path and os.path.exists(path):

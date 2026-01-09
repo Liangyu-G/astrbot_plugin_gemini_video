@@ -13,7 +13,7 @@
   },
   "model": {
     "description": "视频分析模型",
-    "hint": "选择要使用的模型。当前仅支持 Base64 编码方式，建议视频小于 30MB。推荐：gemini-3-flash-preview。",
+    "hint": "选择要使用的模型。推荐：gemini-3-flash-preview。",
     "type": "string",
     "default": "gemini-3-flash-preview",
     "options": [
@@ -51,7 +51,7 @@
   },
   "max_video_size_mb": {
     "description": "最大视频大小 (MB)",
-    "hint": "允许处理的最大视频文件。Base64 模式下（<30MB）兼容性最好。",
+    "hint": "允许处理的最大视频文件大小。",
     "type": "int",
     "default": 100
   },
@@ -103,15 +103,9 @@
     "type": "string",
     "default": "亚托莉正在看视频哦~"
   },
-  "use_url_analysis": {
-    "description": "启用 URL 直接分析",
-    "hint": "对于远程 HTTP/HTTPS 视频链接，是否跳过下载直接发送 URL 到 API 分析。可节省带宽和时间，但需要 API 能访问该 URL。",
-    "type": "bool",
-    "default": true
-  },
   "upload_mode": {
     "description": "上传模式",
-    "hint": "选择视频上传方式：base64 为 Base64 编码（兼容性好，但限制30MB）；file_api 为文件上传 API（支持更大文件，但需 API 支持 /v1/files 接口）。",
+    "hint": "base64: 使用 Base64 编码直接发送（兼容性好，限制30MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
     "type": "string",
     "default": "base64",
     "options": [

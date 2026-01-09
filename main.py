@@ -876,36 +876,57 @@ class GeminiVideoPlugin(Star):
                     await asyncio.sleep(5)
                     # 检查是否完成
                     if monitor_file.bytes_read >= monitor_file.total_size:
-                        # 已读完，可能在等待服务器响应，放宽超时
                         pass 
                     elif time.time() - monitor_file.last_read_time > 30: # 30秒无读取判定为卡死
                          raise TimeoutError("上传卡死：30秒内无数据传输")
 
-            # 并发执行
-            upload_task = asyncio.create_task(_do_upload())
-            monitor_task = asyncio.create_task(_monitor())
-            
-            done, pending = await asyncio.wait(
-                [upload_task, monitor_task], 
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # 清理
-            for t in pending: t.cancel()
-            monitor_file.close()
-            
-            # 检查结果
-            if upload_task in done:
-                # 上传完成（或失败）
-                return upload_task.result()
-            else:
-                # 监控任务先完成（只能是抛出异常）
-                monitor_task.result() # 这会抛出 TimeoutError
-                
+            # 重试循环
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        logger.info(f"[Gemini Video] 上传重试 (第 {attempt+1}/{max_retries} 次)...")
+                        # 重置文件指针和计数器
+                        monitor_file.f.seek(0)
+                        monitor_file.bytes_read = 0
+                        monitor_file.last_read_time = time.time()
+                        await asyncio.sleep(3) # 稍作等待
+
+                    # 并发执行
+                    upload_task = asyncio.create_task(_do_upload())
+                    monitor_task = asyncio.create_task(_monitor())
+                    
+                    done, pending = await asyncio.wait(
+                        [upload_task, monitor_task], 
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    # 清理
+                    for t in pending: t.cancel()
+                    
+                    # 检查结果
+                    if upload_task in done:
+                        try:
+                            return upload_task.result()
+                        except Exception as e:
+                            # 捕获上传任务中的异常（如 ReadError）
+                            raise e
+                    else:
+                        # 监控任务先完成（只能是抛出异常）
+                        monitor_task.result()
+                        
+                except Exception as e:
+                    logger.warning(f"[Gemini Video] 上传尝试 {attempt+1} 失败: {e}")
+                    if attempt == max_retries - 1:
+                        raise e
+                    # 继续下一次重试
+
         except Exception as e:
             logger.error(f"[Gemini Video] 上传失败: {e}")
             monitor_file.close() # 确保关闭
             raise e
+        finally:
+            monitor_file.close()
         
         # 发送上传请求
         async with httpx.AsyncClient(**client_kwargs) as upload_client:

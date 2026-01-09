@@ -106,11 +106,5 @@
       "base64",
       "file_api"
     ]
-  },
-  "upload_speed_mbps": {
-    "description": "上传速度 (Mbps)",
-    "hint": "您的网络上传速度（单位：Mbps）。用于计算大文件上传的超时时间。例如：5 代表 5Mbps 上传速度。可根据实际网络情况调整。",
-    "type": "int",
-    "default": 5
   }
 }

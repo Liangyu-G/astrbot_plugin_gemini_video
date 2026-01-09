@@ -775,59 +775,130 @@ class GeminiVideoPlugin(Star):
         raise Exception("视频处理超时")
     
     async def _upload_file_to_api(self, file_path: str, api_config: dict) -> dict:
-        """上传文件到 /v1/files API
-        
-        Args:
-            file_path: 本地文件路径
-            api_config: API 配置
-            
-        Returns:
-            dict: 包含 id, url 等信息的响应
-        """
+        """上传文件到 /v1/files API (带进度监控和防卡死支持)"""
         import mimetypes
         
         url = f"{api_config['base_url']}/v1/files"
-        
-        # 检测文件类型
         file_type = mimetypes.guess_type(file_path)[0] or 'video/mp4'
         file_name = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
         
-        # 读取文件内容
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
+        # 定义文件包装器用于监控进度
+        class MonitoringFile:
+            def __init__(self, path, total_size):
+                self.f = open(path, 'rb')
+                self.total_size = total_size
+                self.bytes_read = 0
+                self.last_read_time = time.time()
+                self.last_log_time = 0
+                
+            def read(self, size=-1):
+                data = self.f.read(size)
+                if data:
+                    self.bytes_read += len(data)
+                    self.last_read_time = time.time()
+                    
+                    # 每 2 秒打印一次日志
+                    current_time = time.time()
+                    if current_time - self.last_log_time >= 2:
+                        progress = (self.bytes_read / self.total_size) * 100
+                        speed = (len(data) / 1024 / 1024) # 这里的速度计算不准确，只是瞬时，仅打印进度即可
+                        logger.info(f"[Gemini Video] 上传进度: {progress:.1f}% ({self.bytes_read/1024/1024:.1f}/{self.total_size/1024/1024:.1f} MB)")
+                        self.last_log_time = current_time
+                return data
+                
+            def close(self):
+                self.f.close()
+
+        # 准备上传
+        monitor_file = MonitoringFile(file_path, file_size)
         
-        # 构建 multipart/form-data
+        # 监控任务：检查上传是否卡死
+        async def _stall_monitor():
+            while True:
+                await asyncio.sleep(5)
+                if time.time() - monitor_file.last_read_time > 20: # 20秒无读取则认为卡死
+                    if monitor_file.bytes_read < monitor_file.total_size:
+                        logger.error("[Gemini Video] 上传检测到卡死 (20秒无数据传输)")
+                        # 这里我们无法直接中断 httpx 请求，但抛出异常或取消 task 会在外部处理
+                        # 简单的做法是让这个 monitor 抛出 CancelledError 给主任务? 
+                        # 由于 httpx 是同步阻塞在这里的 await，我们需要从外部 cancel 它。
+                        # 但这里我们在同一个函数里。
+                        # 实际上，httpx 的 read 是在 C 层面或者是 loop 中。
+                        pass
+        
+        # 使用 multipart/form-data 上传
+        # 为了支持监控，我们需要将 monitor_file 作为文件对象传递
+        # 注意：httpx 会在后台线程或事件循环中调用 read()
+        
         files = {
-            'file': (file_name, file_content, file_type)
+            'file': (file_name, monitor_file, file_type)
         }
         
         headers = {
             "Authorization": f"Bearer {api_config['api_key']}"
         }
         
-        file_size_mb = len(file_content) / (1024 * 1024)
-        logger.info(f"[Gemini Video] Uploading {file_size_mb:.1f}MB file to {url}")
+        logger.info(f"[Gemini Video] 开始上传文件: {file_name} ({file_size/1024/1024:.1f} MB)")
         
-        # 为大文件上传设置更长的超时时间（基于文件大小和网络速度）
-        # 从配置读取上传速度（Mbps），默认 5Mbps
-        upload_speed_mbps = self.config.get("upload_speed_mbps", 5)
-        upload_speed_mb_per_sec = upload_speed_mbps / 8  # 转换为 MB/s
+        # 设置一个较长的安全超时，主要依赖 stall 监控 (这里简化，先设长一点)
+        # 如果需要完美的 stall 监控，需要将 client.post 放入 task 并由 monitor 取消
+        # 这里为了简单，我们先设置长超时，并依赖 MonitoringFile 的 read 日志来观察
+        # 如果真卡死，用户会在 safe_timeout 后得到错误，或者我们可以改进 monitor 逻辑
         
-        # 理论上传时间 = file_size_mb / upload_speed_mb_per_sec
-        # 加上 2 倍安全余量 + 60 秒握手/处理时间
-        theoretical_time = file_size_mb / upload_speed_mb_per_sec
-        upload_timeout = max(300, int(theoretical_time * 2) + 60)
+        # 改进方案：使用 custom timeout transport 或者直接长超时。
+        # 鉴于 python httpx 的限制，我们设置一个极长的 read timeout (例如 1小时)
+        # 但我们用 monitor task 来主动取消请求
         
-        logger.debug(f"[Gemini Video] Upload speed: {upload_speed_mbps}Mbps ({upload_speed_mb_per_sec:.2f}MB/s)")
-        logger.debug(f"[Gemini Video] Upload timeout set to {upload_timeout}s ({upload_timeout/60:.1f}min) for {file_size_mb:.1f}MB file")
-        
-        # 创建临时客户端with自定义超时
-        timeout = httpx.Timeout(upload_timeout, connect=30.0)
+        timeout = httpx.Timeout(3600.0, connect=30.0) # 1小时读取超时，靠监控任务中断
         proxy = self.config.get("proxy", "")
-        
         client_kwargs = {"timeout": timeout}
-        if proxy:
-            client_kwargs["proxy"] = proxy
+        if proxy: client_kwargs["proxy"] = proxy
+
+        try:
+            # 定义上传任务
+            async def _do_upload():
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    resp = await client.post(url, headers=headers, files=files)
+                    resp.raise_for_status()
+                    return resp.json()
+
+            # 定义监控任务
+            async def _monitor():
+                while True:
+                    await asyncio.sleep(5)
+                    # 检查是否完成
+                    if monitor_file.bytes_read >= monitor_file.total_size:
+                        # 已读完，可能在等待服务器响应，放宽超时
+                        pass 
+                    elif time.time() - monitor_file.last_read_time > 30: # 30秒无读取判定为卡死
+                         raise TimeoutError("上传卡死：30秒内无数据传输")
+
+            # 并发执行
+            upload_task = asyncio.create_task(_do_upload())
+            monitor_task = asyncio.create_task(_monitor())
+            
+            done, pending = await asyncio.wait(
+                [upload_task, monitor_task], 
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # 清理
+            for t in pending: t.cancel()
+            monitor_file.close()
+            
+            # 检查结果
+            if upload_task in done:
+                # 上传完成（或失败）
+                return upload_task.result()
+            else:
+                # 监控任务先完成（只能是抛出异常）
+                monitor_task.result() # 这会抛出 TimeoutError
+                
+        except Exception as e:
+            logger.error(f"[Gemini Video] 上传失败: {e}")
+            monitor_file.close() # 确保关闭
+            raise e
         
         # 发送上传请求
         async with httpx.AsyncClient(**client_kwargs) as upload_client:

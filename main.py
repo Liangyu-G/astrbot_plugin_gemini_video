@@ -649,6 +649,12 @@ class GeminiVideoPlugin(Star):
                             if "url" in res and res["url"] and res["url"].startswith("http"):
                                 logger.info(f"[Gemini Video] get_file 返回 URL: {res['url']}")
                                 url = res["url"]
+                                
+                                # 定义下载路径
+                                download_dir = os.path.join(get_astrbot_data_path(), "temp")
+                                file_name = f"{uuid.uuid4().hex}.mp4"
+                                video_file_path = os.path.join(download_dir, file_name)
+                                
                                 path = await self._download_from_url_with_retry(res["url"], video_file_path)
                                 if path: return await self._store_video(path)
                     except Exception as e:

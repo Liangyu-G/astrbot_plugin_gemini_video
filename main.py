@@ -470,7 +470,7 @@ class GeminiVideoPlugin(Star):
         proxy = self.config.get("proxy", "")
         
         # 下载速度监控配置
-        min_speed_kb_per_sec = 5  # 最小下载速度 5KB/s
+        min_speed_kb_per_sec = 768  # 最小下载速度 0.75MB/s
         speed_check_interval = 10  # 每10秒检查一次速度
 
         for i in range(actual_max_retries):
@@ -517,7 +517,7 @@ class GeminiVideoPlugin(Star):
                                     bytes_since_last_check = downloaded_bytes - last_check_bytes
                                     speed_kb_per_sec = (bytes_since_last_check / 1024) / elapsed
                                     
-                                    logger.debug(f"[Gemini Video] 下载速度: {speed_kb_per_sec:.2f} KB/s (已下载: {downloaded_bytes / 1024 / 1024:.2f} MB)")
+                                    logger.info(f"[Gemini Video] 下载速度: {speed_kb_per_sec:.2f} KB/s (已下载: {downloaded_bytes / 1024 / 1024:.2f} MB)")
                                     
                                     if speed_kb_per_sec < min_speed_kb_per_sec:
                                         raise Exception(
@@ -648,14 +648,21 @@ class GeminiVideoPlugin(Star):
                             if "url" in res and res["url"] and res["url"].startswith("http"):
                                 logger.info(f"[Gemini Video] get_file 返回 URL: {res['url']}")
                                 url = res["url"]
-                                # 尝试 OneBot download_file API
+                                # 尝试 OneBot download_file API（有超时风险，限时20秒）
                                 file_name = f"{uuid.uuid4().hex}.mp4"
                                 try:
-                                    dl_res = await bot.call_action("download_file", url=url, name=file_name)
+                                    logger.info(f"[Gemini Video] 尝试 OneBot download_file API (超时: 20秒)")
+                                    dl_res = await asyncio.wait_for(
+                                        bot.call_action("download_file", url=url, name=file_name),
+                                        timeout=20.0
+                                    )
                                     if dl_res and isinstance(dl_res, dict) and "file" in dl_res:
                                         path = dl_res["file"]
                                         if path and os.path.exists(path):
+                                            logger.info(f"[Gemini Video] OneBot download_file 成功: {path}")
                                             return await self._store_video(path)
+                                except asyncio.TimeoutError:
+                                    logger.warning(f"[Gemini Video] OneBot download_file API 超时，降级到手动下载")
                                 except Exception as e:
                                     logger.warning(f"[Gemini Video] OneBot download_file API 失败: {e}")
 

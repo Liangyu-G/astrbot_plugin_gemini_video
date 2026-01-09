@@ -369,7 +369,28 @@ class GeminiVideoPlugin(Star):
                                 local_path = str(existing_file)
                                 break
                 
-                # 如果还没找到本地文件，则需要下载
+                
+                # 如果还没找到本地文件，尝试 OneBot API 解析 (针对 file_id/filename 情况)
+                if not local_path and not video_url.startswith(("http://", "https://")):
+                    if event and hasattr(event, "bot"):
+                        try:
+                            logger.info(f"[Gemini Video] 尝试调用 OneBot get_file 获取真实地址: {video_url}")
+                            # 传入 file_id，OneBot 适配器通常能识别 filename
+                            res = await event.bot.call_action("get_file", file_id=video_url)
+                            if res:
+                                if "url" in res and res["url"]:
+                                    video_url = res["url"] # 更新为真实 URL，后续会下载
+                                    logger.info(f"[Gemini Video] 获取到真实 URL: {video_url}")
+                                elif "file" in res and res["file"] and os.path.exists(res["file"]):
+                                    local_path = res["file"]
+                                    logger.info(f"[Gemini Video] 获取到真实路径: {local_path}")
+                        except Exception as e:
+                            logger.warning(f"[Gemini Video] OneBot get_file 失败: {e}")
+
+                # 如果依然没有 path 且 url 不合法，报错
+                if not local_path and not video_url.startswith(("http://", "https://")):
+                    return f"❌ 无法解析视频地址: {video_url} (不支持的协议或文件未找到)"
+
                 if not local_path:
                     logger.info(f"[Gemini Video] Downloading video from: {video_url}")
                     try:

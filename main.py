@@ -434,7 +434,7 @@ class GeminiVideoPlugin(Star):
                         return f"❌ 视频分析失败: {str(e)}"
                 else:
                     # Base64 编码模式（默认）
-                    max_size_mb = 30  # Base64 模式建议最大文件大小
+                    max_size_mb = self.config.get("max_base64_size_mb", 30)  # Base64 模式建议最大文件大小
                     if file_size_mb > max_size_mb:
                         return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。如需上传更大文件，请将 upload_mode 设置为 file_api。"
                     
@@ -712,7 +712,7 @@ class GeminiVideoPlugin(Star):
                          raise TimeoutError("上传卡死：30秒内无数据传输")
 
             # 重试循环
-            max_retries = 3
+            max_retries = self.config.get("upload_retries", 3)
             for attempt in range(max_retries):
                 try:
                     if attempt > 0:

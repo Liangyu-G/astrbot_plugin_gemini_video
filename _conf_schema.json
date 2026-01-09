@@ -79,6 +79,12 @@
     "type": "int",
     "default": 3
   },
+  "upload_retries": {
+    "description": "上传重试次数",
+    "hint": "文件上传到 API 失败后的重试尝试次数。",
+    "type": "int",
+    "default": 3
+  },
   "download_retry_delay": {
     "description": "重试等待间隔 (秒)",
     "hint": "每次重试下载之前的等待时间。",
@@ -130,5 +136,11 @@
     "hint": "当视频大小(MB)超过此值时触发压缩。建议设为 20-30。",
     "type": "int",
     "default": 25
+  },
+  "max_base64_size_mb": {
+    "description": "Base64模式最大大小(MB)",
+    "hint": "Base64 模式下允许的最大视频大小。过大会导致请求失败。建议不超过 30MB。",
+    "type": "int",
+    "default": 30
   }
 }

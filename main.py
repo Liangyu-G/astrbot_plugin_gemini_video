@@ -2,7 +2,7 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import *
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
-from astrbot.core.utils.io import download_file
+
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.message.message_event_result import ResultContentType
@@ -20,7 +20,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import Optional, Any
-import uuid
+
 
 @pydantic_dataclass
 class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
@@ -602,229 +602,9 @@ class GeminiVideoPlugin(Star):
         
         raise Exception("下载失败，超过最大重试次数")
 
-    async def _download_video(self, video: Video, event: AstrMessageEvent) -> str:
-        """下载视频到本地存储目录，尝试多种策略"""
-        
-        # 1. 尝试直接获取本地路径 (仅当它本来就在一个外部存在的路径时使用)
-        potential_paths = []
-        if video.path: potential_paths.append(video.path)
-        
-        for p in potential_paths:
-            if p and os.path.isabs(p) and os.path.exists(p) and os.path.isfile(p):
-                # 如果这个路径就在我们的存储目录里，直接使用它
-                if self.video_storage_path and str(self.video_storage_path) in p:
-                    logger.info(f"[Gemini Video] 视频已在存储目录: {p}")
-                    return p
-                # 如果是外部路径，存储一份副本
-                logger.info(f"[Gemini Video] 发现外部本地视频文件: {p}")
-                return await self._store_video(p)
-        
-        # 2. 检查是否已经下载过这个 URL 的视频
-        url = getattr(video, "url", None) or video.file
-        if url and url.startswith("http"):
-            # 计算 URL 哈希，检查是否已有文件
-            import hashlib
-            url_hash = hashlib.md5(url.encode()).hexdigest()
-            expected_filename = f"video_{url_hash}.mp4"
-            expected_path = self.video_storage_path / expected_filename
-            
-            if expected_path.exists():
-                logger.info(f"[Gemini Video] 发现已缓存的视频文件: {expected_path}")
-                return str(expected_path)
-        
-        # 3. 尝试使用 video.convert_to_file_path() (AstrBot 内置转换)
-        try:
-            path = await video.convert_to_file_path()
-            if path and os.path.exists(path):
-                logger.info(f"[Gemini Video] AstrBot 转换路径成功: {path}")
-                return await self._store_video(path)
-        except Exception:
-            pass
 
-        # 3. 尝试 URL 下载 (标准流程)
-        url = getattr(video, "url", None) or video.file
-        if url and url.startswith("http"):
-            # 优先尝试 OneBot download_file API (如果可用)
-            if event and isinstance(event, AiocqhttpMessageEvent):
-                try:
-                    logger.info(f"[Gemini Video] 尝试 OneBot download_file API: {url}")
-                    file_name = f"{uuid.uuid4().hex}.mp4"
-                    res = await event.bot.call_action("download_file", url=url, name=file_name)
-                    if res and isinstance(res, dict) and "file" in res:
-                        path = res["file"]
-                        if path and os.path.exists(path):
-                            logger.info(f"[Gemini Video] OneBot download_file 成功: {path}")
-                            return await self._store_video(path)
-                except Exception as e:
-                    logger.warning(f"[Gemini Video] OneBot download_file API 失败: {e}")
 
-            try:
-                logger.info(f"[Gemini Video] 尝试本地下载: {url}")
-                download_dir = os.path.join(get_astrbot_data_path(), "temp")
-                video_file_path = os.path.join(download_dir, f"{uuid.uuid4().hex}.mp4")
-                # 使用带重试的下载方法
-                path = await self._download_from_url_with_retry(url, video_file_path)
-                if path and os.path.exists(path):
-                    return await self._store_video(path)
-            except Exception as e:
-                logger.warning(f"[Gemini Video] URL 下载失败: {e}")
 
-        # 4. 尝试 OneBot API (针对 LLOneBot 等)
-        # LLOneBot 的视频往往在 QQ 的临时目录，AstrBot 可能拿不到权限或路径不对
-        # 需要调用 get_group_file_url 或 get_file 获取真实路径/链接
-        if event and isinstance(event, AiocqhttpMessageEvent):
-            try:
-                bot = event.bot
-                file_id = getattr(video, "file_id", None) or video.file
-                if file_id:
-                    # 尝试 get_file (通用)
-                    try:
-                        logger.info(f"[Gemini Video] 尝试 OneBot get_file (file_id={file_id})")
-                        res = await bot.call_action("get_file", file_id=file_id)
-                        if res:
-                            # 有的实现返回 'file' (本地路径) 或 'url'
-                            if "file" in res and res["file"] and os.path.exists(res["file"]):
-                                path = res["file"]
-                                # 检查是否是图片（缩略图）
-                                if path.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                                    logger.warning(f"[Gemini Video] get_file 返回了图片路径，可能是缩略图: {path}")
-                                else:
-                                    logger.info(f"[Gemini Video] get_file 返回本地路径: {path}")
-                                    return await self._store_video(path)
-                            
-                            if "url" in res and res["url"] and res["url"].startswith("http"):
-                                logger.info(f"[Gemini Video] get_file 返回 URL: {res['url']}")
-                                url = res["url"]
-                                
-                                # 定义下载路径
-                                download_dir = os.path.join(get_astrbot_data_path(), "temp")
-                                file_name = f"{uuid.uuid4().hex}.mp4"
-                                video_file_path = os.path.join(download_dir, file_name)
-                                
-                                path = await self._download_from_url_with_retry(res["url"], video_file_path)
-                                if path: return await self._store_video(path)
-                    except Exception as e:
-                        logger.debug(f"[Gemini Video] get_file 失败: {e}")
-
-            except Exception as e_ob:
-                logger.warning(f"[Gemini Video] OneBot API 获取失败: {e_ob}")
-
-        raise Exception(f"无法下载视频，所有策略均失效。File info: {video}")
-
-    async def _store_video(self, source_path: str) -> str:
-        """将视频移动或复制到插件存储目录"""
-        if not self.video_storage_path:
-             # 如果没有配置存储目录，直接返回源路径（还在临时目录）
-            return source_path
-            
-        file_name = f"video_{os.path.basename(source_path)}"
-        # 如果文件名没有时间戳，加上防止重名
-        if "video_" not in file_name:
-            import time
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            file_name = f"video_{timestamp}.mp4"
-
-        target_path = self.video_storage_path / file_name
-        
-        try:
-            shutil.copy2(source_path, target_path)
-            logger.info(f"[Gemini Video] 视频已复制到存储目录: {target_path}")
-            return str(target_path)
-        except Exception as e:
-            logger.error(f"[Gemini Video] 存储视频失败: {e}")
-            return source_path
-
-    async def _upload_file(self, local_path: str, mime_type: str, api_config: dict) -> str:
-        """上传文件到 Gemini File API (Resumable Upload)"""
-        file_size = os.path.getsize(local_path)
-        display_name = os.path.basename(local_path)
-        
-        # 1. 构造上传 URL
-        base_url = api_config["base_url"]
-        if "/v1" in base_url:
-            base_url = base_url.split("/v1")[0]
-            
-        upload_url = f"{base_url}/upload/v1beta/files"
-        
-        headers = {
-            "X-Goog-Upload-Protocol": "resumable",
-            "X-Goog-Upload-Command": "start",
-            "X-Goog-Upload-Header-Content-Length": str(file_size),
-            "X-Goog-Upload-Header-Content-Type": mime_type,
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_config["api_key"],
-        }
-        
-        # 2. 初始请求获取上传 session URL
-        meta_payload = {"file": {"display_name": display_name}}
-        logger.debug(f"[Gemini Video] 开始上传: {upload_url}")
-        
-        resp_start = await self.client.post(
-            upload_url, 
-            headers=headers, 
-            json=meta_payload
-        )
-        resp_start.raise_for_status()
-        
-        session_uri = resp_start.headers.get("x-goog-upload-url") or resp_start.headers.get("X-Goog-Upload-Url")
-        if not session_uri:
-            logger.error(f"[Gemini Video] 获取 Session URL 失败. 状态码: {resp_start.status_code}, 响应: {resp_start.text[:200]}")
-            raise Exception(f"服务商不支持 File API (无 Session URL). 响应: {resp_start.text[:50]}")
-            
-        # 3. 上传文件内容
-        logger.info(f"[Gemini Video] 上传文件内容 ({file_size} bytes)")
-        with open(local_path, "rb") as f:
-            file_content = f.read()
-            
-        headers_upload = {
-            "Content-Length": str(file_size),
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command": "upload, finalize",
-            "x-goog-api-key": api_config["api_key"],
-        }
-        
-        resp_upload = await self.client.post(
-            session_uri,
-            headers=headers_upload,
-            content=file_content
-        )
-        resp_upload.raise_for_status()
-        
-        file_info = resp_upload.json()
-        file_uri = file_info["file"]["uri"]
-        file_name = file_info["file"]["name"]
-        logger.info(f"[Gemini Video] 上传成功. URI: {file_uri}, Name: {file_name}")
-        
-        # 4. 等待文件处理完成
-        await self._wait_for_file_active(file_name, api_config)
-        
-        return file_uri
-
-    async def _wait_for_file_active(self, file_name: str, api_config: dict):
-        """等待文件状态变为 ACTIVE"""
-        base_url = api_config["base_url"]
-        if "/v1" in base_url:
-            base_url = base_url.split("/v1")[0]
-            
-        check_url = f"{base_url}/v1beta/{file_name}"
-        headers = {"x-goog-api-key": api_config["api_key"]}
-        
-        logger.info("[Gemini Video] 等待视频处理...")
-        for _ in range(30): # 最多等待 60s
-            resp = await self.client.get(check_url, headers=headers)
-            resp.raise_for_status()
-            info = resp.json()
-            state = info.get("state")
-            
-            if state == "ACTIVE":
-                logger.info("[Gemini Video] 视频处理完毕 (ACTIVE)")
-                return
-            elif state == "FAILED":
-                raise Exception(f"视频处理失败: {info}")
-                
-            await asyncio.sleep(2)
-        
-        raise Exception("视频处理超时")
     
     async def _upload_file_to_api(self, file_path: str, api_config: dict) -> dict:
         """上传文件到 /v1/files API (带进度监控和防卡死支持)"""

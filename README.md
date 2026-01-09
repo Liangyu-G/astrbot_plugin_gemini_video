@@ -4,8 +4,8 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 一个为 AstrBot 设计的高性能 Gemini 视频分析插件。支持多种上传方式、自动清理、人格注入，并完美兼容分段回复与 TTS 功能。
-有个问题是代码写死了解读提示，请自行更改。
-仅在LLBOT平台测试过，其他机器人未测试，不保证其他平台的兼容性。
+关于url上传仅适配了柏拉图API，其他API未测试。
+仅在LLBOT平台与柏拉图API搭配测试过，其他机器人未测试，不保证其他平台的兼容性。
 
 ## ✨ 功能亮点
 

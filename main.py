@@ -472,11 +472,11 @@ class GeminiVideoPlugin(Star):
                 return target_path
             except (httpx.TimeoutException, httpx.NetworkError) as e:
                 logger.warning(f"[Gemini Video] 下载失败 (第 {i+1} 次): {e}")
-                if i == max_retries - 1:
+                if i == actual_max_retries - 1:
                     raise e
                 # 立即重试，不等待
             except Exception as e:
-                if i == max_retries - 1:
+                if i == actual_max_retries - 1:
                     raise e
                 logger.warning(f"[Gemini Video] 下载遇到错误: {e}, 即将重试")
                 # 立即重试，不等待

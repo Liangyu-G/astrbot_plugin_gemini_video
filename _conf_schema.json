@@ -61,12 +61,6 @@
     "type": "int",
     "default": 300
   },
-  "download_timeout": {
-    "description": "下载超时 (秒)",
-    "hint": "视频文件从原始链接下载到本地的超时时间。",
-    "type": "int",
-    "default": 20
-  },
   "download_retries": {
     "description": "下载重试次数",
     "hint": "当视频下载失败后的重试尝试次数。",

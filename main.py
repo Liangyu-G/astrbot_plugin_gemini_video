@@ -464,7 +464,9 @@ class GeminiVideoPlugin(Star):
 
     async def _download_from_url_with_retry(self, url: str, target_path: str, max_retries: int | None = None) -> str:
         """从 URL 下载文件，支持重试、超时控制和下载速度监控"""
-        read_timeout = self.config.get("download_timeout", 20)
+        # 移除 download_timeout 配置，使用固定安全超时 (300秒) 防止永久死锁
+        # 实际连接质量由下方的下载速度监控负责
+        safe_read_timeout = 300
         actual_max_retries = max_retries if max_retries is not None else self.config.get("download_retries", 3)
         retry_delay = self.config.get("download_retry_delay", 5)
         proxy = self.config.get("proxy", "")
@@ -479,7 +481,7 @@ class GeminiVideoPlugin(Star):
                     logger.info(f"[Gemini Video] 等待 {retry_delay} 秒后进行下一次重试...")
                     await asyncio.sleep(retry_delay)
 
-                logger.info(f"[Gemini Video] 下载文件 (第 {i+1}/{actual_max_retries} 次): {url} (Timeout: {read_timeout}s)")
+                logger.info(f"[Gemini Video] 下载文件 (第 {i+1}/{actual_max_retries} 次): {url}")
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "Referer": "https://www.qq.com/"
@@ -487,7 +489,7 @@ class GeminiVideoPlugin(Star):
                 
                 # 创建带代理配置的客户端
                 client_kwargs = {
-                    "timeout": httpx.Timeout(read_timeout, connect=10.0),
+                    "timeout": httpx.Timeout(safe_read_timeout, connect=10.0),
                     "headers": headers,
                     "follow_redirects": True
                 }

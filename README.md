@@ -3,6 +3,8 @@
 [![AstrBot](https://img.shields.io/badge/AstrBot-v3.0+-blue.svg)](https://github.com/Soulter/AstrBot)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+> 💬 **加入QQ群获取支持**：[点击加入 308749810](https://qun.qq.com/universal-share/share?ac=1&authKey=fqH3xeXAFOlK6983ACfvuMn1uK9cnK8KEwU9p7mprX3DXHncn3uVx%2BcnGmphv%2BZK&busi_data=eyJncm91cENvZGUiOiIzMDg3NDk4MTAiLCJ0b2tlbiI6Ilp4dnk1anEySG9Wdzg1NEI0ZmZ2NkVYcXIwb3QvQ3VNKzNwMGNLYlQ4aGlvTzdJdUJDY011V3hXUjI0cUlRMTUiLCJ1aW4iOiIyMTQ4MTkzNDU4In0=&data=6bw6cjWn50SQWIAWQ9nhxMn1xCHo62sPn4oJP3qWfes7lRZXBAZq1UPnfa31fKPMhMZcQxuIqDA4IildMyb6u_TQHVCntNf4tvSZeFN6D9U&svctype=5&tempid=h5_group_info) 🚀
+
 一个为 AstrBot 设计的**高性能、高可靠性** Gemini 视频分析插件。支持多种上传模式、自动压缩、智能网络优化，完美兼容 Agent 工具调用与人格注入。
 
 > 🎯 **优化重点**：经过深度优化的下载逻辑、上传可靠性、视频压缩，以及针对 QQ/腾讯 CDN 的智能直连优化。
@@ -445,6 +447,19 @@ UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol
 ---
 
 ## 🤝 贡献与支持
+
+### 💬 QQ交流群
+**遇到问题？想要交流经验？加入我们的QQ群！**
+
+- **群号**：308749810
+- **加群链接**：[点击加入](https://qun.qq.com/universal-share/share?ac=1&authKey=fqH3xeXAFOlK6983ACfvuMn1uK9cnK8KEwU9p7mprX3DXHncn3uVx%2BcnGmphv%2BZK&busi_data=eyJncm91cENvZGUiOiIzMDg3NDk4MTAiLCJ0b2tlbiI6Ilp4dnk1anEySG9Wdzg1NEI0ZmZ2NkVYcXIwb3QvQ3VNKzNwMGNLYlQ4aGlvTzdJdUJDY011V3hXUjI0cUlRMTUiLCJ1aW4iOiIyMTQ4MTkzNDU4In0=&data=6bw6cjWn50SQWIAWQ9nhxMn1xCHo62sPn4oJP3qWfes7lRZXBAZq1UPnfa31fKPMhMZcQxuIqDA4IildMyb6u_TQHVCntNf4tvSZeFN6D9U&svctype=5&tempid=h5_group_info) 🚀
+
+在群里可以：
+- 💡 快速获取技术支持
+- 🐛 反馈Bug和问题
+- 💬 与其他用户交流使用经验
+- 🎯 提出功能建议
+- 📢 获取最新版本发布通知
 
 ### 问题反馈
 遇到问题？请提交 Issue：

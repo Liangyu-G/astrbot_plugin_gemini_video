@@ -65,6 +65,13 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
 
              logger.info(f"[Gemini Video] Tool call started. URL: {video_url}, Prompt: {prompt}")
              
+             # Notify user that analysis is starting
+             try:
+                 yield_msg = MessageChain().plain("⏳ 正在分析视频内容，请稍候...")
+                 await context.context.send_message(yield_msg)
+             except Exception as e:
+                 logger.warning(f"[Gemini Video] Failed to send analyzing status: {e}")
+             
              # Pass the event context to the analysis method for more robust downloading
              logger.info(f"[Gemini Video] Calling _perform_video_analysis...")
              

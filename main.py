@@ -61,19 +61,9 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
                 return "Please provide a video URL or send a video first."
 
         try:
+
              logger.info(f"[Gemini Video] Tool call started. URL: {video_url}, Prompt: {prompt}")
              
-             # 发送中间提示 (使用更安全的方式)
-             try:
-                 if context.context and context.context.event:
-                      watching_hint = self.plugin.config.get("watching_hint", "亚托莉正在看视频哦~")
-                      await self.plugin.context.send_message(context.context.event.unified_msg_origin, MessageChain([Plain(watching_hint)]))
-                 else:
-                     logger.warning("[Gemini Video] context.context.event is None in tool call.")
-             except Exception as e_hint:
-                 logger.warning(f"[Gemini Video] Failed to send hint: {e_hint}")
-
-
              # Pass the event context to the analysis method for more robust downloading
              logger.info(f"[Gemini Video] Calling _perform_video_analysis...")
              
@@ -92,7 +82,11 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
                          logger.warning(f"[Gemini Video] Cached path no longer exists: {cached_path}")
              
              result = await self.plugin._perform_video_analysis(video_url, prompt, event=context.context.event)
-             logger.info(f"[Gemini Video] _perform_video_analysis returned. Length: {len(result) if result else 0}")
+             logger.info(f"[Gemini Video] _perform_video_analysis returned. Length: {len(result) if result else 0}") 
+             
+             if not result:
+                 return "视频分析失败，未能获取分析结果。"
+                 
              return result
         except Exception as e:
             return f"Error analyzing video: {str(e)}"

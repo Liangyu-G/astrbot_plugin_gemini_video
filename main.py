@@ -80,7 +80,7 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
         except Exception as e:
             return f"Error analyzing video: {str(e)}"
 
-@register("astrbot_plugin_gemini-video", "liangyu", "Gemini 视频分析插件", "1.0.0")
+@register("astrbot_plugin_gemini_video", "liangyu", "Gemini 视频分析插件", "1.0.0")
 class GeminiVideoPlugin(Star):
     """Gemini 视频分析插件"""
 

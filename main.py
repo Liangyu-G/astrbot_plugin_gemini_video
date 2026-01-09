@@ -348,17 +348,36 @@ class GeminiVideoPlugin(Star):
                 local_path = video_url
                 logger.info(f"[Gemini Video] Using existing local file: {local_path}")
             else:
-                # 需要下载
-                logger.info(f"[Gemini Video] Downloading video from: {video_url}")
-                try:
-                    dummy_video = Video(file=video_url)
-                    stored_path = await self._download_video(dummy_video, event)
-                    if stored_path and os.path.exists(stored_path):
-                        local_path = stored_path
-                        logger.info(f"[Gemini Video] Download successful: {local_path}")
-                except Exception as e_dl:
-                    logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)
-                    return f"❌ 无法下载视频: {str(e_dl)}"
+                # 检查是否是文件 ID（不是 HTTP URL）且已在存储目录中
+                if not video_url.startswith("http://") and not video_url.startswith("https://"):
+                    # 可能是文件 ID，检查存储目录中是否已有对应文件
+                    import hashlib
+                    file_id_hash = hashlib.md5(video_url.encode()).hexdigest()
+                    potential_path = self.video_storage_path / f"video_{file_id_hash}.mp4"
+                    
+                    if potential_path.exists():
+                        logger.info(f"[Gemini Video] Found existing file for ID: {potential_path}")
+                        local_path = str(potential_path)
+                    else:
+                        # 搜索存储目录中是否有任何包含此文件 ID 的文件
+                        for existing_file in self.video_storage_path.glob("*.mp4"):
+                            if file_id_hash in existing_file.name or video_url.replace('.mp4', '') in existing_file.name:
+                                logger.info(f"[Gemini Video] Found matching file: {existing_file}")
+                                local_path = str(existing_file)
+                                break
+                
+                # 如果还没找到本地文件，则需要下载
+                if not local_path:
+                    logger.info(f"[Gemini Video] Downloading video from: {video_url}")
+                    try:
+                        dummy_video = Video(file=video_url)
+                        stored_path = await self._download_video(dummy_video, event)
+                        if stored_path and os.path.exists(stored_path):
+                            local_path = stored_path
+                            logger.info(f"[Gemini Video] Download successful: {local_path}")
+                    except Exception as e_dl:
+                        logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)
+                        return f"❌ 无法下载视频: {str(e_dl)}"
             
             if not local_path or not os.path.exists(local_path):
                 return "❌ 视频文件不存在或下载失败。"

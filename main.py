@@ -69,7 +69,7 @@ class GeminiVideoAnalysisTool(FunctionTool[AstrAgentContext]):
              try:
                  hint = self.plugin.config.get("watching_hint", "⏳ 正在分析视频内容，请稍候...")
                  yield_msg = MessageChain([Plain(hint)])
-                 await context.context.send_message(yield_msg)
+                 await self.plugin.context.send_message(context.context.event.unified_msg_origin, yield_msg)
              except Exception as e:
                  logger.warning(f"[Gemini Video] Failed to send analyzing status: {e}")
              

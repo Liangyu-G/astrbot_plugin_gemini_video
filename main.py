@@ -373,8 +373,13 @@ class GeminiVideoPlugin(Star):
                 if not local_path:
                     logger.info(f"[Gemini Video] Downloading video from: {video_url}")
                     try:
-                        dummy_video = Video(file=video_url)
-                        stored_path = await self._download_video(dummy_video, event)
+                        # 计算哈希文件名
+                        import hashlib
+                        url_hash = hashlib.md5(video_url.encode()).hexdigest()
+                        expected_filename = f"video_{url_hash}.mp4"
+                        expected_path = self.video_storage_path / expected_filename
+                        
+                        stored_path = await self._download_from_url_with_retry(video_url, str(expected_path))
                         if stored_path and os.path.exists(stored_path):
                             local_path = stored_path
                             is_temp = True # 标记为临时文件，分析完需要清理

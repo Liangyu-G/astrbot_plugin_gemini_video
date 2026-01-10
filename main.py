@@ -1,9 +1,10 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
+from astrbot.api import logger
 from astrbot.api.message_components import *
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.message.message_event_result import ResultContentType
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
@@ -122,12 +123,12 @@ class GeminiVideoPlugin(Star):
         self.video_path_cache: dict[str, str] = {}
         self.analysis_lock = asyncio.Lock()
 
-        # 创建视频存储目录
+        # 创建视频存储目录（使用官方推荐的数据目录，而非插件代码目录）
         storage_path = self.config.get("video_storage_path", "videos")
         if storage_path:
-            # 相对路径相对于插件目录
-            plugin_dir = Path(__file__).parent
-            self.video_storage_path = plugin_dir / storage_path
+            # 使用 StarTools 获取官方数据目录，遵循代码与数据分离的最佳实践
+            data_dir = StarTools.get_data_dir(self.name)
+            self.video_storage_path = data_dir / storage_path
             self.video_storage_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"[Gemini Video] 视频存储路径: {self.video_storage_path}")
 
@@ -150,8 +151,8 @@ class GeminiVideoPlugin(Star):
                 timeout=timeout,
                 follow_redirects=True,
             )
-        # 启动清理任务
-        asyncio.create_task(self._cleanup_loop())
+        # 启动清理任务并保存引用，防止被垃圾回收
+        self.cleanup_task = asyncio.create_task(self._cleanup_loop())
         
         logger.info("[Gemini Video] 插件初始化完成")
 
@@ -636,7 +637,8 @@ class GeminiVideoPlugin(Star):
                 # 如果这个路径就在我们的存储目录里，我们要忽略它以强制下载
                 if self.video_storage_path and str(self.video_storage_path) in p:
                     continue
-                if "temp" in p and get_astrbot_data_path() in p:
+                # 跳过临时目录中的文件
+                if "temp" in p.lower():
                     continue
 
                 logger.info(f"[Gemini Video] 发现外部本地视频文件: {p}")
@@ -657,9 +659,10 @@ class GeminiVideoPlugin(Star):
             # 直接使用带进度的下载方法（移除不稳定的 OneBot download_file API）
             try:
                 logger.info(f"[Gemini Video] 开始下载视频: {url}")
-                download_dir = os.path.join(get_astrbot_data_path(), "temp")
-                os.makedirs(download_dir, exist_ok=True)
-                video_file_path = os.path.join(download_dir, f"{uuid.uuid4().hex}.mp4")
+                data_dir = StarTools.get_data_dir(self.name)
+                download_dir = data_dir / "temp"
+                download_dir.mkdir(parents=True, exist_ok=True)
+                video_file_path = str(download_dir / f"{uuid.uuid4().hex}.mp4")
                 # 使用带重试和进度显示的下载方法
                 path = await self._download_from_url_with_retry(url, video_file_path)
                 if path and os.path.exists(path):
@@ -714,13 +717,14 @@ class GeminiVideoPlugin(Star):
                             url = res["url"]
                             
                             # 直接使用带进度的下载方法
-                            download_dir = os.path.join(get_astrbot_data_path(), "temp")
-                            os.makedirs(download_dir, exist_ok=True)
+                            data_dir = StarTools.get_data_dir(self.name)
+                            download_dir = data_dir / "temp"
+                            download_dir.mkdir(parents=True, exist_ok=True)
                             file_name = f"{uuid.uuid4().hex}.mp4"
-                            video_file_path = os.path.join(download_dir, file_name)
+                            video_file_path = str(download_dir / file_name)
                             
                             try:
-                                logger.info(f"[Gemini Video] 开始下载视频（带进度显示）")
+                                logger.info(f"[Gemini Video] 开始下载视频（每10秒更新进度）")
                                 path = await self._download_from_url_with_retry(url, video_file_path)
                                 if path and os.path.exists(path):
                                     return await self._store_video(path)

@@ -7,8 +7,6 @@
 
 一个为 AstrBot 设计的**高性能、高可靠性** Gemini 视频分析插件。支持多种上传模式、自动压缩、智能网络优化，完美兼容 Agent 工具调用与人格注入。
 
-> 🎯 **优化重点**：经过深度优化的下载逻辑、上传可靠性、视频压缩，以及针对 QQ/腾讯 CDN 的智能直连优化。
-
 ## ✨ 核心特性
 
 ### 🚀 智能上传策略
@@ -24,12 +22,6 @@
 - 每次分析都触发**强制重新下载**和**重新分析**
 - 不依赖过时的本地缓存，确保获取视频的最新内容
 - 适用于实时更新的视频内容场景
-
-### 🌐 网络优化与可靠性
-- **智能代理绕过**：自动检测 QQ/腾讯 CDN 域名（`.qq.com`、`.qq.com.cn`、`.tencent.com`），强制直连以获得最佳速度
-- **多轮重试机制**：下载、上传均支持可配置的重试次数和间隔
-- **超时监控**：实时监控下载速度和上传进度，防止卡死
-- **OneBot 协议兼容**：支持 `get_file` 和 `download_file` 接口，解析文件 ID 为真实 URL/路径
 
 ### 🤖 Agent 工具集成
 - **函数工具调用**：注册为 `gemini_analyze_video` 工具，LLM 可自动调用
@@ -48,7 +40,34 @@
 
 ---
 
-## 📦 安装方法
+## � 平台支持
+
+> [!IMPORTANT]
+> **本插件专为 QQ 平台设计，仅支持 OneBot 协议适配器**
+
+### ✅ 支持的平台
+- **QQ**（通过 OneBot v11 协议）
+  - LLOneBot
+  - Go-CQHttp
+  - Lagrange
+  - NapCat
+
+### ❌ 不支持的平台
+- Telegram
+- Discord
+- WeChat
+- 其他非 OneBot 协议平台
+
+### 技术说明
+插件内部使用了 OneBot 特有的 API：
+- `get_file` - 解析文件 ID 为真实 URL/路径
+- `download_file` - OneBot 内置下载接口
+
+这些 API 在其他协议适配器中不存在，因此插件**无法在非 QQ 平台上正常工作**。如果您使用 Telegram 或其他平台，建议寻找专门为该平台设计的视频分析插件。
+
+---
+
+## �📦 安装方法
 
 ### 方式一：通过 AstrBot 管理面板（推荐）
 1. 打开 AstrBot Web 管理面板
@@ -88,10 +107,15 @@ git clone https://github.com/Liangyu-G/astrbot_plugin_gemini-video
 
 | 配置项 | 说明 | 默认值 | 备注 |
 |:---|:---|:---|:---|
-| `upload_mode` | 上传模式 | `base64` | `base64` 或 `file_api` |
+| `upload_mode` | 上传模式 | `auto` | `auto`、`base64` 或 `file_api` |
 | `max_base64_size_mb` | Base64 模式最大文件大小 | `30` | 建议 20-30MB |
 | `upload_retries` | 上传重试次数 | `3` | 网络不稳定时可增加 |
 | `upload_stream_timeout` | 上传流超时（秒） | `3600` | File API 模式推荐 ≥600s |
+
+**上传模式说明**：
+- `auto`：自动选择（<10MB 使用 base64，≥10MB 使用 file_api）
+- `base64`：Base64 编码直接发送（兼容性好）
+- `file_api`：先上传到 API 服务器（支持更大文件）
 
 ### 视频压缩配置
 
@@ -112,11 +136,9 @@ git clone https://github.com/Liangyu-G/astrbot_plugin_gemini-video
 | `download_retries` | 下载重试次数 | `3` | - |
 | `download_retry_delay` | 重试间隔（秒） | `5` | - |
 | `download_stream_timeout` | 下载流超时（秒） | `300` | 大视频可适当增加 |
+| `get_file_timeout` | OneBot get_file 超时（秒） | `30` | 获取文件信息的等待时间 |
+| `get_file_retries` | OneBot get_file 重试次数 | `2` | 超时后的重试次数 |
 | `proxy` | HTTP 代理地址 | *空* | 格式：`http://host:port` |
-
-**智能代理绕过**：
-- QQ/腾讯 CDN 域名（如 `multimedia.nt.qq.com.cn`）会自动绕过代理，强制直连
-- 提高国内视频下载速度
 
 ### 其他配置
 
@@ -153,7 +175,7 @@ git clone https://github.com/Liangyu-G/astrbot_plugin_gemini-video
 
 ### 方式二：LLM 工具调用（推荐）
 
-如果您的主 LLM 支持 Function Calling（如 GPT-4、Claude、Gemini），可以直接在对话中说：
+如果您的主 LLM 支持 Function Calling（如 GPT-4、Claude、Gemini），可以直接在对话中引用视频消息说：
 
 ```
 - "帮我看看这个视频讲了什么"
@@ -182,23 +204,6 @@ git clone https://github.com/Liangyu-G/astrbot_plugin_gemini-video
 1. 优先检查 Reply 消息中的视频（从缓存或 chain 获取）
 2. 检查当前消息中的视频
 3. LLM 提供的 URL（仅作为后备）
-```
-
-### 下载流程
-```
-1. 检测 URL 类型：
-   - file:/// → 直接使用本地路径
-   - HTTP URL → 进入下载流程
-   - 文件名/ID → 调用 OneBot get_file 解析
-   
-2. 智能代理判断：
-   - QQ/腾讯域名 → 强制直连
-   - 其他域名 → 使用配置的 proxy
-   
-3. 下载监控：
-   - 每10秒检查速度
-   - 停滞检测（30秒无数据传输则报错）
-   - 支持多轮重试
 ```
 
 ### 上传与分析流程
@@ -257,16 +262,14 @@ Important: You must ACT AS your persona. Do NOT act as an AI assistant. Stay in 
 ### Q2: 下载速度极慢（<50 KB/s）
 
 **可能原因**：
-1. QQ CDN 域名未被正确识别为国内域名
-2. 网络环境限制（运营商 QoS）
-3. 服务器端限流
+1. 网络环境限制（运营商 QoS）
+2. 服务器端限流
 
 **解决方案**：
 ```
-1. 查看日志，确认是否有"检测到国内域名，强制直连"
-2. 如果没有，检查 main.py:559 的域名匹配逻辑
-3. 尝试清空 proxy 配置（国内视频不需要代理）
-4. 考虑使用 OneBot 的 download_file API（如支持）
+1. 尝试自己先观看视频，缓存到本地
+2. 转发该视频给机器人
+3. 再次调用插件功能进行分析
 ```
 
 ### Q3: 上传失败，提示 77% 处停滞
@@ -339,24 +342,6 @@ ffmpeg -version
 - 现在优先检查 Reply 消息中的视频
 - LLM 提供的 URL 仅作为后备
 - 确保更新到最新版本
-```
-
-### Q7: OneBot 平台视频下载失败
-
-**错误示例**：
-```
-UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol
-```
-
-**原因**：
-- OneBot 返回的是文件 ID（如 `abc123.mp4`），不是 URL
-
-**解决方案**：
-```
-插件已自动处理（v1.1.0+）：
-- 自动调用 get_file 接口解析文件 ID
-- 确保 OneBot 实现（如 LLOneBot）支持 get_file
-- 查看日志确认是否成功解析
 ```
 
 ---

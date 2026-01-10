@@ -129,7 +129,7 @@
   },
   "upload_mode": {
     "description": "上传模式",
-    "hint": "auto: 自动模式（小于10MB使用base64，大于等于10MB使用file_api）; base64: 使用 Base64 编码直接发送（兼容性好，限制20MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
+    "hint": "auto: 自动模式（小于10MB使用base64，大于等于10MB使用file_api）; base64: 使用 Base64 编码直接发送（兼容性好）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
     "type": "string",
     "default": "auto",
     "options": [

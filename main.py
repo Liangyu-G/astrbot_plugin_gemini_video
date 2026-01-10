@@ -927,15 +927,7 @@ class GeminiVideoPlugin(Star):
         finally:
             monitor_file.close()
         
-        # 发送上传请求
-        async with httpx.AsyncClient(**client_kwargs) as upload_client:
-            response = await upload_client.post(url, files=files, headers=headers)
-            response.raise_for_status()
-        
-        result = response.json()
-        logger.debug(f"[Gemini Video] Upload response: {result}")
-        
-        return result
+
     
     async def _call_gemini_api_with_file_id(self, file_info: dict, prompt: str):
         """使用上传后的文件信息调用 Gemini API 进行分析

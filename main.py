@@ -429,55 +429,35 @@ class GeminiVideoPlugin(Star):
             
             # 使用信号量限制并发数
             async with self.concurrency_limiter:
-                if upload_mode == "file_api":
-                    # 文件上传 API 模式：上传到服务器，使用返回的 CDN URL
-                    logger.info(f"[Gemini Video] Using File Upload API mode")
-                    try:
-                        # 1. 上传文件到 /v1/files
-                        file_info = await self._upload_file_to_api(local_path, api_config)
-                        logger.info(f"[Gemini Video] File uploaded successfully")
-                        
-                        # 2. 使用返回的信息进行分析（优先使用 CDN URL）
-                        async for result_text in self._call_gemini_api_with_file_id(file_info, prompt or "Describe this video."):
-                            gemini_analysis_result += result_text
-                        
-                        if not gemini_analysis_result:
-                            return f"❌ 视频分析失败。API 未返回有效结果。"
+                try:
+                    if upload_mode == "file_api":
+                        logger.info(f"[Gemini Video] Using File Upload API mode")
+                        try:
+                            # 尝试使用 File API
+                            gemini_analysis_result = await self._analyze_with_file_api(local_path, api_config, prompt)
+                        except Exception as e:
+                            logger.warning(f"[Gemini Video] File API mode failed: {e}")
                             
-                        logger.info("[Gemini Video] File API flow analysis success.")
-                    except Exception as e:
-                        logger.error(f"[Gemini Video] File API mode failed: {e}", exc_info=True)
-                        return f"❌ 视频分析失败: {str(e)}"
-                else:
-                    # Base64 编码模式（默认）
-                    max_size_mb = self.config.get("max_base64_size_mb", 30)  # Base64 模式建议最大文件大小
-                    if file_size_mb > max_size_mb:
-                        return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_size_mb}MB。如需上传更大文件，请将 upload_mode 设置为 file_api。"
-                    
-                    try:
-                        logger.info(f"[Gemini Video] Using Base64 encoding mode")
+                            # 检查是否可以降级到 Base64 模式
+                            max_base64_size = self.config.get("max_base64_size_mb", 30)
+                            if file_size_mb <= max_base64_size:
+                                logger.info(f"[Gemini Video] 尝试降级: 文件大小 {file_size_mb:.1f}MB <= {max_base64_size}MB，切换到 Base64 模式...")
+                                gemini_analysis_result = await self._analyze_with_base64(local_path, prompt)
+                            else:
+                                logger.error(f"[Gemini Video] 无法降级: 文件过大 ({file_size_mb:.1f}MB > {max_base64_size}MB)")
+                                raise e  # 抛出原始异常
+
+                    else:
+                        # Base64 模式
+                        max_base64_size = self.config.get("max_base64_size_mb", 30)
+                        if file_size_mb > max_base64_size:
+                            return f"❌ 视频文件过大 ({file_size_mb:.1f}MB)，Base64 模式最大支持 {max_base64_size}MB。如需上传更大文件，请将 upload_mode 设置为 file_api。"
                         
-                        # 这是一个耗时 CPU 操作，对于大文件会阻塞事件循环，必须放入线程池执行
-                        def _read_and_encode(path):
-                            with open(path, "rb") as video_file:
-                                return base64.b64encode(video_file.read()).decode("utf-8")
-                        
-                        logger.info(f"[Gemini Video] Encoding video to Base64 (in thread pool)...")
-                        b64_data = await asyncio.to_thread(_read_and_encode, local_path)
-                        
-                        data_uri = f"data:video/mp4;base64,{b64_data}"
-                        logger.info(f"[Gemini Video] Calling Gemini API with Base64...")
-                        
-                        async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
-                            gemini_analysis_result += result_text
-                        
-                        if not gemini_analysis_result:
-                            return f"❌ 视频分析失败。API 未返回有效结果。"
-                            
-                        logger.info("[Gemini Video] Base64 flow analysis success.")
-                    except Exception as e:
-                        logger.error(f"[Gemini Video] Base64 mode failed: {e}", exc_info=True)
-                        return f"❌ 视频分析失败: {str(e)}"
+                        gemini_analysis_result = await self._analyze_with_base64(local_path, prompt)
+
+                except Exception as e:
+                    logger.error(f"[Gemini Video] Analysis failed: {e}", exc_info=True)
+                    return f"❌ 视频分析失败: {str(e)}"
                 
                 logger.info(f"[Gemini Video] Analysis complete, length: {len(gemini_analysis_result)}")
                 
@@ -1125,3 +1105,46 @@ class GeminiVideoPlugin(Star):
                 try: output_file.unlink()
                 except: pass
             return input_path
+
+    async def _analyze_with_file_api(self, local_path: str, api_config: dict, prompt: str) -> str:
+        """使用 File API 模式进行分析"""
+        gemini_analysis_result = ""
+        
+        # 1. 上传文件到 /v1/files
+        file_info = await self._upload_file_to_api(local_path, api_config)
+        logger.info(f"[Gemini Video] File uploaded successfully")
+        
+        # 2. 使用返回的信息进行分析（优先使用 CDN URL）
+        async for result_text in self._call_gemini_api_with_file_id(file_info, prompt or "Describe this video."):
+            gemini_analysis_result += result_text
+        
+        if not gemini_analysis_result:
+            raise ValueError("视频分析失败。API 未返回有效结果。")
+            
+        logger.info("[Gemini Video] File API flow analysis success.")
+        return gemini_analysis_result
+
+    async def _analyze_with_base64(self, local_path: str, prompt: str) -> str:
+        """使用 Base64 模式进行分析"""
+        gemini_analysis_result = ""
+        logger.info(f"[Gemini Video] Using Base64 encoding mode")
+        
+        # 这是一个耗时 CPU 操作，对于大文件会阻塞事件循环，必须放入线程池执行
+        def _read_and_encode(path):
+            with open(path, "rb") as video_file:
+                return base64.b64encode(video_file.read()).decode("utf-8")
+        
+        logger.info(f"[Gemini Video] Encoding video to Base64 (in thread pool)...")
+        b64_data = await asyncio.to_thread(_read_and_encode, local_path)
+        
+        data_uri = f"data:video/mp4;base64,{b64_data}"
+        logger.info(f"[Gemini Video] Calling Gemini API with Base64...")
+        
+        async for result_text in self._call_gemini_api_stream(data_uri, prompt or "Describe this video."):
+            gemini_analysis_result += result_text
+        
+        if not gemini_analysis_result:
+             raise ValueError("视频分析失败。API 未返回有效结果。")
+            
+        logger.info("[Gemini Video] Base64 flow analysis success.")
+        return gemini_analysis_result

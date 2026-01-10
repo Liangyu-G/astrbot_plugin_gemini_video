@@ -125,7 +125,11 @@ class GeminiVideoPlugin(Star):
         
         # 视频路径缓存: Map[MessageID, LocalPath]
         self.video_path_cache: dict[str, str] = {}
-        self.analysis_lock = asyncio.Lock()
+        
+        # 并发控制：使用信号量替代互斥锁，允许一定程度的并发
+        max_concurrent = self.config.get("max_concurrent_analysis", 3)
+        self.concurrency_limiter = asyncio.Semaphore(max_concurrent)
+        logger.info(f"[Gemini Video] 并发限制设置为: {max_concurrent}")
 
         # 创建视频存储目录（使用官方推荐的数据目录，而非插件代码目录）
         storage_path = self.config.get("video_storage_path", "videos")
@@ -423,8 +427,8 @@ class GeminiVideoPlugin(Star):
             api_config = await self._get_api_config()
             gemini_analysis_result = ""
             
-            # 使用锁防止并发分析同一视频
-            async with self.analysis_lock:
+            # 使用信号量限制并发数
+            async with self.concurrency_limiter:
                 if upload_mode == "file_api":
                     # 文件上传 API 模式：上传到服务器，使用返回的 CDN URL
                     logger.info(f"[Gemini Video] Using File Upload API mode")

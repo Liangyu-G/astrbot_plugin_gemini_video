@@ -138,6 +138,14 @@
       "file_api"
     ]
   },
+  "max_concurrent_analysis": {
+    "description": "最大并发分析数",
+    "hint": "允许同时进行的视频分析任务数量。建议根据服务器性能设置，默认为 3。",
+    "type": "int",
+    "default": 3,
+    "minimum": 1,
+    "maximum": 10
+  },
   "enable_compression": {
     "description": "开启视频自动压缩",
     "hint": "当视频体积超过阈值时，自动调用 ffmpeg 进行压缩，显著提高上传成功率并节省流量。需要系统安装 ffmpeg。",

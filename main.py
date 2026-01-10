@@ -20,6 +20,10 @@ import asyncio
 import shutil
 import time
 import uuid
+import aiofiles
+import base64
+import mimetypes
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Optional, Any
 
@@ -519,10 +523,18 @@ class GeminiVideoPlugin(Star):
                     await asyncio.sleep(retry_delay)
 
                 logger.info(f"[Gemini Video] 下载文件 (第 {i+1}/{actual_max_retries} 次): {url}")
+                
+                # 构造请求头
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer": "https://www.qq.com/"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
+                
+                # 仅对腾讯系域名添加 Referer，避免对其他网站造成防盗链问题
+                parsed_url = urlparse(url)
+                hostname = parsed_url.hostname or ""
+                if hostname.endswith((".qq.com", ".qq.com.cn", ".tencent.com")):
+                    headers["Referer"] = "https://www.qq.com/"
+                    logger.debug(f"[Gemini Video] 检测到腾讯域名，添加 QQ Referer")
                 
                 # 创建带代理配置的客户端
                 client_kwargs = {
@@ -532,8 +544,6 @@ class GeminiVideoPlugin(Star):
                 }
                 
                 # 智能代理逻辑：如果是国内域名，强制不走代理
-                from urllib.parse import urlparse
-                hostname = urlparse(url).hostname
                 if hostname and (hostname.endswith(".qq.com") or hostname.endswith(".qq.com.cn") or hostname.endswith(".tencent.com")):
                     logger.info(f"[Gemini Video] 检测到国内域名 ({hostname})，强制直连 (跳过代理)")
                 elif proxy:
@@ -549,9 +559,10 @@ class GeminiVideoPlugin(Star):
                         last_check_time = time.time()
                         last_check_bytes = 0
                         
-                        with open(target_path, 'wb') as f:
+                        # 使用异步文件写入，避免阻塞事件循环
+                        async with aiofiles.open(target_path, 'wb') as f:
                             async for chunk in response.aiter_bytes():
-                                f.write(chunk)
+                                await f.write(chunk)  # 异步写入
                                 downloaded_bytes += len(chunk)
                                 
                                 # 检查下载速度/停滞
@@ -740,7 +751,6 @@ class GeminiVideoPlugin(Star):
     
     async def _upload_file_to_api(self, file_path: str, api_config: dict) -> dict:
         """上传文件到 /v1/files API (带进度监控和防卡死支持)"""
-        import mimetypes
         
         url = f"{api_config['base_url']}/v1/files"
         file_type = mimetypes.guess_type(file_path)[0] or 'video/mp4'

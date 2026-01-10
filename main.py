@@ -452,9 +452,14 @@ class GeminiVideoPlugin(Star):
                     
                     try:
                         logger.info(f"[Gemini Video] Using Base64 encoding mode")
-                        import base64
-                        with open(local_path, "rb") as video_file:
-                            b64_data = base64.b64encode(video_file.read()).decode("utf-8")
+                        
+                        # 这是一个耗时 CPU 操作，对于大文件会阻塞事件循环，必须放入线程池执行
+                        def _read_and_encode(path):
+                            with open(path, "rb") as video_file:
+                                return base64.b64encode(video_file.read()).decode("utf-8")
+                        
+                        logger.info(f"[Gemini Video] Encoding video to Base64 (in thread pool)...")
+                        b64_data = await asyncio.to_thread(_read_and_encode, local_path)
                         
                         data_uri = f"data:video/mp4;base64,{b64_data}"
                         logger.info(f"[Gemini Video] Calling Gemini API with Base64...")
@@ -636,7 +641,8 @@ class GeminiVideoPlugin(Star):
         target_path = self.video_storage_path / file_name
         
         try:
-            shutil.copy2(source_path, target_path)
+            # 使用 asyncio.to_thread 避免阻塞事件循环
+            await asyncio.to_thread(shutil.copy2, source_path, target_path)
             logger.info(f"[Gemini Video] 视频已复制到存储目录: {target_path}")
             return str(target_path)
         except Exception as e:

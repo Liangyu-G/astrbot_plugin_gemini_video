@@ -18,6 +18,7 @@ import json
 import asyncio
 import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Optional, Any
 
@@ -333,7 +334,7 @@ class GeminiVideoPlugin(Star):
         """执行视频分析的核心逻辑：先下载，再根据模式选择上传方式"""
         logger.info(f"[Gemini Video] _perform_video_analysis entered with URL: {video_url}")
         try:
-            # 第一步：下载视频到本地（不管什么模式都要下载）
+            # 第一步：下载视频到本地（使用新的 _download_video 方法）
             local_path = ""
             is_temp = False
             
@@ -348,63 +349,17 @@ class GeminiVideoPlugin(Star):
                 local_path = video_url
                 logger.info(f"[Gemini Video] Using existing local file: {local_path}")
             else:
-                # 检查是否是文件 ID（不是 HTTP URL）且已在存储目录中
-                if not video_url.startswith("http://") and not video_url.startswith("https://"):
-                    # 可能是文件 ID，检查存储目录中是否已有对应文件
-                    import hashlib
-                    file_id_hash = hashlib.md5(video_url.encode()).hexdigest()
-                    potential_path = self.video_storage_path / f"video_{file_id_hash}.mp4"
-                    
-                    if potential_path.exists():
-                        logger.info(f"[Gemini Video] Found existing file for ID: {potential_path}")
-                        local_path = str(potential_path)
-                    else:
-                        # 搜索存储目录中是否有任何包含此文件 ID 的文件
-                        for existing_file in self.video_storage_path.glob("*.mp4"):
-                            if file_id_hash in existing_file.name or video_url.replace('.mp4', '') in existing_file.name:
-                                logger.info(f"[Gemini Video] Found matching file: {existing_file}")
-                                local_path = str(existing_file)
-                                break
-                
-                
-                # 如果还没找到本地文件，尝试 OneBot API 解析 (针对 file_id/filename 情况)
-                if not local_path and not video_url.startswith(("http://", "https://")):
-                    if event and hasattr(event, "bot"):
-                        try:
-                            logger.info(f"[Gemini Video] 尝试调用 OneBot get_file 获取真实地址: {video_url}")
-                            # 传入 file_id，OneBot 适配器通常能识别 filename
-                            res = await event.bot.call_action("get_file", file_id=video_url)
-                            if res:
-                                if "url" in res and res["url"]:
-                                    video_url = res["url"] # 更新为真实 URL，后续会下载
-                                    logger.info(f"[Gemini Video] 获取到真实 URL: {video_url}")
-                                elif "file" in res and res["file"] and os.path.exists(res["file"]):
-                                    local_path = res["file"]
-                                    logger.info(f"[Gemini Video] 获取到真实路径: {local_path}")
-                        except Exception as e:
-                            logger.warning(f"[Gemini Video] OneBot get_file 失败: {e}")
-
-                # 如果依然没有 path 且 url 不合法，报错
-                if not local_path and not video_url.startswith(("http://", "https://")):
-                    return f"❌ 无法解析视频地址: {video_url} (不支持的协议或文件未找到)"
-
-                if not local_path:
-                    logger.info(f"[Gemini Video] Downloading video from: {video_url}")
-                    try:
-                        # 计算哈希文件名
-                        import hashlib
-                        url_hash = hashlib.md5(video_url.encode()).hexdigest()
-                        expected_filename = f"video_{url_hash}.mp4"
-                        expected_path = self.video_storage_path / expected_filename
-                        
-                        stored_path = await self._download_from_url_with_retry(video_url, str(expected_path))
-                        if stored_path and os.path.exists(stored_path):
-                            local_path = stored_path
-                            is_temp = True # 标记为临时文件，分析完需要清理
-                            logger.info(f"[Gemini Video] Download successful: {local_path}")
-                    except Exception as e_dl:
-                        logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)
-                        return f"❌ 无法下载视频: {str(e_dl)}"
+                # 使用新的 _download_video 方法处理所有下载逻辑
+                try:
+                    dummy_video = Video(file=video_url)
+                    stored_path = await self._download_video(dummy_video, event)
+                    if stored_path and os.path.exists(stored_path):
+                        local_path = stored_path
+                        is_temp = False  # _download_video 已经存储到永久目录
+                        logger.info(f"[Gemini Video] Download successful: {local_path}")
+                except Exception as e_dl:
+                    logger.error(f"[Gemini Video] Download failed: {e_dl}", exc_info=True)
+                    return f"❌ 无法下载视频: {str(e_dl)}"
             
             if not local_path or not os.path.exists(local_path):
                 return "❌ 视频文件不存在或下载失败。"
@@ -418,19 +373,41 @@ class GeminiVideoPlugin(Star):
             logger.info(f"[Gemini Video] Video ready at {local_path}, size: {file_size_mb:.1f}MB")
             
             # 尝试自动压缩
+            original_size_mb = file_size_mb  # 保存原始大小
             try:
                 compressed_path = await self._compress_video_if_needed(local_path)
                 if compressed_path != local_path:
-                    logger.info(f"[Gemini Video] 使用压缩后的视频进行分析: {compressed_path}")
-                    local_path = compressed_path
-                    is_temp = True # 标记为临时文件，确保会被清理
-                    # 更新文件大小信息用于后续判断
-                    file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
+                    compressed_size_mb = os.path.getsize(compressed_path) / (1024 * 1024)
+                    
+                    # 只有压缩后文件更小才使用
+                    if compressed_size_mb < original_size_mb:
+                        logger.info(f"[Gemini Video] ✅ 压缩成功，使用压缩后的视频: {compressed_path} ({original_size_mb:.1f}MB → {compressed_size_mb:.1f}MB)")
+                        local_path = compressed_path
+                        is_temp = True # 标记为临时文件，确保会被清理
+                        file_size_mb = compressed_size_mb
+                    else:
+                        logger.warning(f"[Gemini Video] ⚠️ 压缩后反而变大 ({original_size_mb:.1f}MB → {compressed_size_mb:.1f}MB)，使用原始文件")
+                        # 删除压缩后的文件
+                        try:
+                            os.remove(compressed_path)
+                        except:
+                            pass
             except Exception as e:
                 logger.warning(f"[Gemini Video] 视频压缩失败，尝试使用原始文件: {e}")
+
             
             # 第二步：根据上传模式选择分析方式
             upload_mode = self.config.get("upload_mode", "base64")
+            
+            # 自动模式：根据文件大小选择最优上传方式
+            if upload_mode == "auto":
+                if file_size_mb < 10:
+                    upload_mode = "base64"
+                    logger.info(f"[Gemini Video] 自动模式: 视频大小 {file_size_mb:.1f}MB < 10MB，选择 base64 模式")
+                else:
+                    upload_mode = "file_api"
+                    logger.info(f"[Gemini Video] 自动模式: 视频大小 {file_size_mb:.1f}MB >= 10MB，选择 file_api 模式")
+            
             api_config = await self._get_api_config()
             gemini_analysis_result = ""
             
@@ -625,7 +602,135 @@ class GeminiVideoPlugin(Star):
         
         raise Exception("下载失败，超过最大重试次数")
 
+    async def _store_video(self, source_path: str) -> str:
+        """将视频移动或复制到插件存储目录"""
+        if not self.video_storage_path:
+             # 如果没有配置存储目录，直接返回源路径（还在临时目录）
+            return source_path
+            
+        file_name = f"video_{os.path.basename(source_path)}"
+        # 如果文件名没有时间戳，加上防止重名
+        if "video_" not in file_name:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            file_name = f"video_{timestamp}.mp4"
 
+        target_path = self.video_storage_path / file_name
+        
+        try:
+            shutil.copy2(source_path, target_path)
+            logger.info(f"[Gemini Video] 视频已复制到存储目录: {target_path}")
+            return str(target_path)
+        except Exception as e:
+            logger.error(f"[Gemini Video] 存储视频失败: {e}")
+            return source_path
+
+    async def _download_video(self, video: Video, event: AstrMessageEvent) -> str:
+        """下载视频到本地存储目录，尝试多种策略（带超时和重试）"""
+        
+        # 1. 尝试直接获取本地路径 (仅当它本来就在一个外部存在的路径时使用)
+        potential_paths = []
+        if video.path: potential_paths.append(video.path)
+        
+        for p in potential_paths:
+            if p and os.path.isabs(p) and os.path.exists(p) and os.path.isfile(p):
+                # 如果这个路径就在我们的存储目录里，我们要忽略它以强制下载
+                if self.video_storage_path and str(self.video_storage_path) in p:
+                    continue
+                if "temp" in p and get_astrbot_data_path() in p:
+                    continue
+
+                logger.info(f"[Gemini Video] 发现外部本地视频文件: {p}")
+                return await self._store_video(p)
+        
+        # 2. 尝试使用 video.convert_to_file_path() (AstrBot 内置转换)
+        try:
+            path = await video.convert_to_file_path()
+            if path and os.path.exists(path):
+                logger.info(f"[Gemini Video] AstrBot 转换路径成功: {path}")
+                return await self._store_video(path)
+        except Exception:
+            pass
+
+        # 3. 尝试 URL 下载 (标准流程)
+        url = getattr(video, "url", None) or video.file
+        if url and url.startswith("http"):
+            # 直接使用带进度的下载方法（移除不稳定的 OneBot download_file API）
+            try:
+                logger.info(f"[Gemini Video] 开始下载视频: {url}")
+                download_dir = os.path.join(get_astrbot_data_path(), "temp")
+                os.makedirs(download_dir, exist_ok=True)
+                video_file_path = os.path.join(download_dir, f"{uuid.uuid4().hex}.mp4")
+                # 使用带重试和进度显示的下载方法
+                path = await self._download_from_url_with_retry(url, video_file_path)
+                if path and os.path.exists(path):
+                    return await self._store_video(path)
+            except Exception as e:
+                logger.warning(f"[Gemini Video] URL 下载失败: {e}")
+
+        # 4. 尝试 OneBot API (针对 LLOneBot 等) - 带超时和重试
+        if event and isinstance(event, AiocqhttpMessageEvent):
+            try:
+                bot = event.bot
+                file_id = getattr(video, "file_id", None) or video.file
+                if file_id:
+                    # 尝试 get_file (通用) - 添加超时和重试
+                    get_file_timeout = self.config.get("get_file_timeout", 30)
+                    get_file_retries = self.config.get("get_file_retries", 2)
+                    
+                    res = None
+                    for attempt in range(get_file_retries):
+                        try:
+                            logger.info(f"[Gemini Video] 尝试 OneBot get_file (file_id={file_id}, 第 {attempt+1}/{get_file_retries} 次)")
+                            res = await asyncio.wait_for(
+                                bot.call_action("get_file", file_id=file_id),
+                                timeout=get_file_timeout
+                            )
+                            logger.info(f"[Gemini Video] get_file 成功返回")
+                            break  # 成功则跳出重试循环
+                        except asyncio.TimeoutError:
+                            logger.warning(f"[Gemini Video] get_file 超时 (第 {attempt+1}/{get_file_retries} 次, {get_file_timeout}秒)")
+                            if attempt == get_file_retries - 1:
+                                raise
+                            await asyncio.sleep(2)  # 重试前等待2秒
+                        except Exception as e:
+                            logger.warning(f"[Gemini Video] get_file 失败 (第 {attempt+1}/{get_file_retries} 次): {e}")
+                            if attempt == get_file_retries - 1:
+                                raise
+                            await asyncio.sleep(2)
+                    
+                    if res:
+                        # 有的实现返回 'file' (本地路径) 或 'url'
+                        if "file" in res and res["file"] and os.path.exists(res["file"]):
+                            path = res["file"]
+                            # 检查是否是图片（缩略图）
+                            if path.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                                logger.warning(f"[Gemini Video] get_file 返回了图片路径，可能是缩略图: {path}")
+                            else:
+                                logger.info(f"[Gemini Video] get_file 返回本地路径: {path}")
+                                return await self._store_video(path)
+                        
+                        if "url" in res and res["url"] and res["url"].startswith("http"):
+                            logger.info(f"[Gemini Video] get_file 返回 URL: {res['url']}")
+                            url = res["url"]
+                            
+                            # 直接使用带进度的下载方法
+                            download_dir = os.path.join(get_astrbot_data_path(), "temp")
+                            os.makedirs(download_dir, exist_ok=True)
+                            file_name = f"{uuid.uuid4().hex}.mp4"
+                            video_file_path = os.path.join(download_dir, file_name)
+                            
+                            try:
+                                logger.info(f"[Gemini Video] 开始下载视频（带进度显示）")
+                                path = await self._download_from_url_with_retry(url, video_file_path)
+                                if path and os.path.exists(path):
+                                    return await self._store_video(path)
+                            except Exception as e:
+                                logger.error(f"[Gemini Video] 下载失败: {e}")
+
+            except Exception as e_ob:
+                logger.warning(f"[Gemini Video] OneBot API 获取失败: {e_ob}")
+
+        raise Exception(f"无法下载视频，所有策略均失效。File info: {video}")
 
 
     
@@ -1004,15 +1109,21 @@ class GeminiVideoPlugin(Star):
         output_file = input_file.parent / f"{input_file.stem}_compressed.mp4"
         
         try:
-            # 压缩参数: 720p, crf 28 (较高压缩率), ultrafast (速度优先)
-            # scale=-2:720 保证高度720，宽度保持比例且为2的倍数
+            # 快速压缩参数（平衡速度和效果）
+            # - 使用 libx264 (H.264) - 编码速度比 H.265 快很多
+            # - crf 26 稍低的值，加快编码速度
+            # - preset veryfast 快速编码
+            # - scale=-2:720 降低分辨率到720p
+            # - 音频使用 aac 编码器，码率 128k
             cmd = [
                 "ffmpeg", "-y", 
                 "-i", input_path,
-                "-vf", "scale=-2:720", 
-                "-c:v", "libx264", 
-                "-preset", "ultrafast", 
-                "-crf", "28",
+                "-vf", "scale=-2:720",    # 720p，宽度自动适配
+                "-c:v", "libx264",        # 使用 H.264 编码器（速度快）
+                "-preset", "veryfast",    # 快速编码
+                "-crf", "26",             # CRF 26 - 平衡质量和速度
+                "-c:a", "aac",            # 音频使用 AAC
+                "-b:a", "128k",           # 音频码率 128kbps
                 str(output_file)
             ]
             

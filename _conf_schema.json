@@ -91,6 +91,18 @@
     "type": "int",
     "default": 5
   },
+  "get_file_timeout": {
+    "description": "OneBot get_file 超时 (秒)",
+    "hint": "调用 OneBot API 获取文件信息的最长等待时间。如果超时会跳过 get_file 直接报错。建议 20-60 秒。",
+    "type": "int",
+    "default": 30
+  },
+  "get_file_retries": {
+    "description": "OneBot get_file 重试次数",
+    "hint": "get_file 超时或失败后的重试次数。建议 1-3 次。",
+    "type": "int",
+    "default": 2
+  },
   "proxy": {
     "description": "HTTP 代理",
     "hint": "如果您的网络无法直连 Google 或中转服务器，请设置代理。例如: http://127.0.0.1:7890",
@@ -117,10 +129,11 @@
   },
   "upload_mode": {
     "description": "上传模式",
-    "hint": "base64: 使用 Base64 编码直接发送（兼容性好，限制20MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
+    "hint": "auto: 自动模式（小于10MB使用base64，大于等于10MB使用file_api）; base64: 使用 Base64 编码直接发送（兼容性好，限制20MB）; file_api: 先上传到 API 文件服务器获取 CDN URL 后分析（支持更大文件）。",
     "type": "string",
-    "default": "base64",
+    "default": "auto",
     "options": [
+      "auto",
       "base64",
       "file_api"
     ]

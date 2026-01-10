@@ -289,6 +289,13 @@ class GeminiVideoPlugin(Star):
             # 获取分析结果
             gemini_analysis_result = await self._perform_video_analysis(video_url, prompt, event=event)
             
+            # 检查是否包含错误信息
+            if gemini_analysis_result.startswith("❌") or "失败" in gemini_analysis_result and len(gemini_analysis_result) < 100:
+                # 优雅地告知用户分析失败，而不是让 LLM 瞎编
+                error_msg = gemini_analysis_result.replace("❌", "").strip()
+                yield event.plain_result(f"💡 视频分析遇到了一点小问题：\n{error_msg}\n\n请稍后再试一次吧！")
+                return
+
             # 调用主模型进行生成
             try:
                 # 获取当前会话使用的 LLM Provider ID
@@ -297,19 +304,19 @@ class GeminiVideoPlugin(Star):
                 # 获取当前会话的人格设置
                 personality = await self.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
                 system_prompt = personality['prompt']
-                # begin_dialogs 用于设定语气
-                contexts = personality['_begin_dialogs_processed']
+                # begin_dialogs 用于设定语气（公开 API）
+                contexts = personality['begin_dialogs']
 
                 # 处理空 Prompt
                 final_user_prompt = prompt if prompt.strip() else "Look at this video."
 
-                # 构建给主模型的 Prompt - Double Injection Strategy
+                # 构建给主模型的 Prompt
+                # 注意：system_prompt 会作为单独参数传入，不需要在这儿重复
                 final_prompt = (
-                    f"[System Instruction: You are {system_prompt}]\n"
                     f"[Context: The user sent a video. Here is a description of the video content:]\n\n"
                     f"{gemini_analysis_result}\n\n"
                     f"[User Request: {final_user_prompt}]\n\n"
-                    f"[Task: Reply to the User Request based on the video description. Important: You must ACT AS your persona defined in System Instruction. Do NOT act as an AI assistant. Stay in character.]"
+                    f"[Task: Reply to the User Request based on the video description. Stay in character as defined in your system prompt.]"
                 )
                 
                 # 调用主模型

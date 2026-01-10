@@ -290,7 +290,7 @@ class GeminiVideoPlugin(Star):
             gemini_analysis_result = await self._perform_video_analysis(video_url, prompt, event=event)
             
             # 检查是否包含错误信息
-            if gemini_analysis_result.startswith("❌") or "失败" in gemini_analysis_result and len(gemini_analysis_result) < 100:
+            if gemini_analysis_result.startswith("❌") or ("失败" in gemini_analysis_result and len(gemini_analysis_result) < 100):
                 # 优雅地告知用户分析失败，而不是让 LLM 瞎编
                 error_msg = gemini_analysis_result.replace("❌", "").strip()
                 yield event.plain_result(f"💡 视频分析遇到了一点小问题：\n{error_msg}\n\n请稍后再试一次吧！")

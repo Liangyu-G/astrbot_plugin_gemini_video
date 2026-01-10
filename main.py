@@ -784,19 +784,7 @@ class GeminiVideoPlugin(Star):
         # 准备上传
         monitor_file = MonitoringFile(file_path, file_size)
         
-        # 监控任务：检查上传是否卡死
-        async def _stall_monitor():
-            while True:
-                await asyncio.sleep(5)
-                if time.time() - monitor_file.last_read_time > 20: # 20秒无读取则认为卡死
-                    if monitor_file.bytes_read < monitor_file.total_size:
-                        logger.error("[Gemini Video] 上传检测到卡死 (20秒无数据传输)")
-                        # 这里我们无法直接中断 httpx 请求，但抛出异常或取消 task 会在外部处理
-                        # 简单的做法是让这个 monitor 抛出 CancelledError 给主任务? 
-                        # 由于 httpx 是同步阻塞在这里的 await，我们需要从外部 cancel 它。
-                        # 但这里我们在同一个函数里。
-                        # 实际上，httpx 的 read 是在 C 层面或者是 loop 中。
-                        pass
+
         
         # 使用 multipart/form-data 上传
         # 为了支持监控，我们需要将 monitor_file 作为文件对象传递

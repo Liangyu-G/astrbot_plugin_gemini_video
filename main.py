@@ -961,65 +961,7 @@ class GeminiVideoPlugin(Star):
             # 如果没有 URL，说明 API 不支持此模式
             raise ValueError("File upload did not return a usable URL. File API mode may not be supported.")
 
-    async def _generate_content_stream(self, file_uri: str, prompt: str):
-        """调用 Native Gemini API 生成内容 (流式)"""
-        api_config = await self._get_api_config()
-        
-        base_url = api_config["base_url"]
-        if "/v1" in base_url:
-            base_url = base_url.split("/v1")[0]
-            
-        model = api_config["model"]
-        url = f"{base_url}/v1beta/models/{model}:streamGenerateContent"
-        
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"file_data": {"mime_type": "video/mp4", "file_uri": file_uri}}
-                ]
-            }],
-            "generationConfig": {
-                "maxOutputTokens": self.config.get("max_tokens", 4000)
-            }
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_config["api_key"]
-        }
-        
-        async with self.client.stream("POST", url, json=payload, headers=headers) as response:
-            if response.status_code != 200:
-                err_text = await response.aread()
-                logger.error(f"[Gemini Video] API Error {response.status_code}: {err_text}")
-                raise Exception(f"API 请求失败: {response.status_code}")
 
-            buffer = ""
-            async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                
-                json_str = line[6:].strip()
-                if not json_str: continue
-
-                try:
-                    chunk = json.loads(json_str)
-                    candidates = chunk.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            text = parts[0].get("text", "")
-                            if text:
-                                buffer += text
-                                if len(buffer) > 50:
-                                    yield buffer
-                                    buffer = ""
-                except Exception:
-                    pass
-            
-            if buffer:
-                yield buffer
 
     async def _call_gemini_api_stream(
         self, video_url: str, prompt: str

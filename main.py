@@ -848,11 +848,18 @@ class GeminiVideoPlugin(Star):
 
         try:
             # 定义上传任务
-            async def _do_upload():
-                async with httpx.AsyncClient(**client_kwargs) as client:
-                    # 添加 purpose 字段以兼容严格的 OpenAI 接口实现
+            # 定义同步上传函数 (将在线程中运行)
+            # 关键修复：使用同步客户端 + asyncio.to_thread，确保 MonitorFile.read() 的阻塞只会发生在工作线程中，
+            # 而不会阻塞主事件循环，从而避免机器人在上传大文件时无响应。
+            def _run_sync_upload():
+                # 在线程中构建同步客户端
+                sync_client_kwargs = {"timeout": httpx.Timeout(float(safe_upload_timeout), connect=30.0)}
+                if proxy: sync_client_kwargs["proxy"] = proxy
+
+                with httpx.Client(**sync_client_kwargs) as client:
                     data = {"purpose": "assistants"}
-                    resp = await client.post(url, headers=headers, files=files, data=data)
+                    # 注意：httpx 同步客户端会同步调用 monitor_file.read()，但这发生在线程中，是安全的。
+                    resp = client.post(url, headers=headers, files=files, data=data)
                     resp.raise_for_status()
                     return resp.json()
 
@@ -878,8 +885,8 @@ class GeminiVideoPlugin(Star):
                         monitor_file.last_read_time = time.time()
                         await asyncio.sleep(3) # 稍作等待
 
-                    # 并发执行
-                    upload_task = asyncio.create_task(_do_upload())
+                    # 并发执行 (上传在线程池中，监控在主循环中)
+                    upload_task = asyncio.create_task(asyncio.to_thread(_run_sync_upload))
                     monitor_task = asyncio.create_task(_monitor())
                     
                     done, pending = await asyncio.wait(

@@ -98,7 +98,7 @@ git clone https://github.com/Liangyu-G/astrbot_plugin_gemini-video
 
 | 配置项 | 说明 | 默认值 | 备注 |
 |:---|:---|:---|:---|
-| `base_url` | Gemini API 基础 URL | *必填* | 支持官方 API 和第三方中转（如柏拉图） |
+| `base_url` | OpenAI 兼容 Base URL | *必填* | **必须**支持 `/v1/chat/completions`。不支持 Google 原生 API 地址。 |
 | `api_key` | API 密钥 | *必填* | 确保有充足的配额 |
 | `model` | 使用的模型 | `gemini-3-flash-preview` | 推荐 flash 系列，速度快 |
 | `max_tokens` | 最大生成 Token 数 | `4000` | 分析结果的长度限制 |

@@ -1,7 +1,7 @@
 {
   "base_url": {
     "description": "API Base URL",
-    "hint": "Gemini API 的基础 URL。例如: https://generativelanguage.googleapis.com 或第三方中转地址如 https://api.example.com/v1",
+    "hint": "Gemini API 的 OpenAI 兼容格式 Base URL（必须支持 /v1/chat/completions）。例如使用 OneAPI/NewAPI 转换后的地址，如 https://api.example.com/v1。不支持 Google 原生 API 地址。",
     "type": "string",
     "default": ""
   },

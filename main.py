@@ -1043,14 +1043,14 @@ class GeminiVideoPlugin(Star):
         logger.debug(f"[Gemini Video] API Config - {state_msg}")
 
         if not api_key:
-         raise ValueError(f"未配置 API Base URL 或 API Key。状态: {state_msg}")
-    
-    # 必须配置 Base URL (不支持 Google 原生 API)
-    if not base_url:
-        raise ValueError("插件配置错误: 必须配置 OpenAI 兼容格式的 Base URL (例如 https://api.exa.one/v1)。本插件不支持 Google 原生 API 地址。")
-    
-    # 去除末尾斜杠
-    base_url = base_url.rstrip("/")
+             raise ValueError(f"未配置 API Base URL 或 API Key。状态: {state_msg}")
+        
+        # 必须配置 Base URL (不支持 Google 原生 API)
+        if not base_url:
+            raise ValueError("插件配置错误: 必须配置 OpenAI 兼容格式的 Base URL (例如 https://api.exa.one/v1)。本插件不支持 Google 原生 API 地址。")
+        
+        # 去除末尾斜杠
+        base_url = base_url.rstrip("/")
         
         return {
             "base_url": base_url,
